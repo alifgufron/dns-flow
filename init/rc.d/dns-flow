@@ -1,0 +1,90 @@
+#!/bin/sh
+#
+# PROVIDE: dns_flow
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+#
+# FreeBSD rc.d script for dns-flow
+# Install to /usr/local/etc/rc.d/dns-flow
+#
+# Enable in /etc/rc.conf:
+#   dns_flow_enable="YES"
+#   dns_flow_config="/usr/local/etc/dns-flow.yaml"
+#   dns_flow_user="dnsflow"
+#   dns_flow_group="dnsflow"
+
+. /etc/rc.subr
+
+name="dns_flow"
+rcvar="dns_flow_enable"
+
+load_rc_config "$name"
+
+: ${dns_flow_enable:="NO"}
+: ${dns_flow_config:="/usr/local/etc/dns-flow.yaml"}
+: ${dns_flow_user:="dnsflow"}
+: ${dns_flow_group:="dnsflow"}
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/sbin/dns-flow"
+command="/usr/sbin/daemon"
+command_args="-f -p ${pidfile} -u ${dns_flow_user} ${procname} -config ${dns_flow_config}"
+
+start_precmd="${name}_prestart"
+reload_cmd="${name}_reload"
+
+dns_flow_reload() {
+	if [ ! -f "${pidfile}" ]; then
+		echo "${name} is not running."
+		return 1
+	fi
+	local pid
+	pid=$(cat "${pidfile}" 2>/dev/null | tr -d ' \t\r\n')
+	if kill -HUP "${pid}" 2>/dev/null; then
+		echo "${name} reloaded config (SIGHUP sent to pid ${pid})."
+	else
+		echo "Failed to send SIGHUP to ${name} (pid ${pid})."
+		return 1
+	fi
+}
+
+dns_flow_prestart() {
+	if [ ! -f "${dns_flow_config}" ]; then
+		echo "Config file ${dns_flow_config} not found"
+		return 1
+	fi
+	if ! pw usershow "${dns_flow_user}" >/dev/null 2>&1; then
+		echo "User ${dns_flow_user} does not exist; create with:"
+		echo "  pw adduser ${dns_flow_user} -d /nonexistent -s /usr/sbin/nologin"
+		return 1
+	fi
+}
+
+# Override status command to check pidfile manually
+status_cmd="${name}_status"
+dns_flow_status() {
+	if [ ! -f "${pidfile}" ]; then
+		echo "${name} is not running (no pidfile)."
+		return 1
+	fi
+
+	local pid
+	pid=$(cat "${pidfile}" 2>/dev/null | tr -d ' \t\r\n')
+	case "${pid}" in
+		""|*[!0-9]*)
+			echo "${name} is not running (invalid pidfile)."
+			return 1
+			;;
+	esac
+
+	if kill -0 "${pid}" 2>/dev/null; then
+		echo "${name} is running as pid ${pid}."
+		return 0
+	else
+		echo "${name} is not running (stale pidfile ${pidfile})."
+		rm -f "${pidfile}"
+		return 1
+	fi
+}
+
+run_rc_command "$1"

@@ -1,0 +1,31 @@
+[Unit]
+Description=DNS-Flow — DNSTAP collector and DNS traffic flow storage
+Documentation=https://github.com/alifgufron/dns-flow
+After=network.target kafka.service
+Wants=kafka.service
+
+[Service]
+Type=simple
+User=dnsflow
+Group=dnsflow
+ExecStart=/usr/local/sbin/dns-flow -config /etc/dns-flow.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+; Data directory
+RuntimeDirectory=dns-flow
+StateDirectory=dns-flow
+LogsDirectory=dns-flow
+
+; Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
