@@ -1,4 +1,6 @@
 bin/
 *.mmdb
-*.yaml
 data/
+.env
+config.local.yaml
+configs/*.local.yaml

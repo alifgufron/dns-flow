@@ -5,44 +5,60 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	framestream "github.com/farsightsec/golang-framestream"
 	dnstap "github.com/dnstap/golang-dnstap"
+	framestream "github.com/farsightsec/golang-framestream"
 	"github.com/miekg/dns"
 
 	"github.com/alifgufron/dns-flow/internal/domain"
 )
 
+type Config struct {
+	Type       string
+	Listen     string
+	UnixSocket string
+}
+
 type Server struct {
-	listen   string
+	cfg      Config
 	pipeline domain.Pipeline
 	logger   *slog.Logger
 	ln       net.Listener
 	cancel   context.CancelFunc
 }
 
-func NewServer(listen string, pipeline domain.Pipeline, logger *slog.Logger) *Server {
+func NewServer(cfg Config, pipeline domain.Pipeline, logger *slog.Logger) *Server {
 	return &Server{
-		listen:   listen,
+		cfg:      cfg,
 		pipeline: pipeline,
 		logger:   logger,
 	}
 }
 
 func (s *Server) Start() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+
+	network := "tcp"
+	addr := s.cfg.Listen
+	if s.cfg.Type == "unix" {
+		network = "unix"
+		addr = s.cfg.UnixSocket
+		os.Remove(addr)
+		s.logger.Info("dnstap listening on unix socket", "socket", addr)
+	}
+
 	var err error
-	s.ln, err = net.Listen("tcp", s.listen)
+	s.ln, err = net.Listen(network, addr)
 	if err != nil {
 		return err
 	}
 
-	s.logger.Info("dnstap server listening", "address", s.listen)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
+	s.logger.Info("dnstap server listening", "address", addr)
 
 	go s.acceptLoop(ctx)
 	return nil
@@ -53,7 +69,12 @@ func (s *Server) Stop() error {
 		s.cancel()
 	}
 	if s.ln != nil {
-		return s.ln.Close()
+		if err := s.ln.Close(); err != nil {
+			return err
+		}
+	}
+	if s.cfg.Type == "unix" {
+		os.Remove(s.cfg.UnixSocket)
 	}
 	return nil
 }
@@ -350,7 +371,7 @@ func (s *Server) parseEDNS(o *dns.OPT, event *domain.DNSRawEvent) {
 	event.EDNS.DNSSECOK = o.Do()
 
 	for _, opt := range o.Option {
-			ednsOpt := domain.EDNSOption{
+		ednsOpt := domain.EDNSOption{
 			Code:  int(opt.Option()),
 			Value: opt.String(),
 		}

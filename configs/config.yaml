@@ -1,0 +1,99 @@
+# DNS-Flow Configuration
+# Disable an output by removing its section entirely.
+
+server:
+  name: "dns-flow"
+  log_level: "info"            # info | debug | warn | error
+
+# Mode: collect (default) | relay
+#   collect - read DNSTAP input, decode, buffer via Kafka, store to outputs
+#   relay   - pass FSTRM frames through untouched (input -> output), no Kafka
+mode: collect
+
+# --- DNSTAP Receiver ---
+# dns-flow acts as the server/listener; the DNS source connects to it.
+dnstap:
+  type: tcp                  # tcp (default) | unix
+  listen: "0.0.0.0:6000"     # Bind address for TCP FSTRM (source dials here)
+  # unix_socket: "/path/to/dnstap.sock"   # Used when type: unix (dns-flow creates & listens)
+
+# --- Relay (used when mode: relay) ---
+# unix input is listened on (source dials in, like fstrm_capture);
+# tcp input and both outputs are dialed by the relay.
+# relay:
+#   input:
+#     type: unix             # unix (relay listens) | tcp (relay dials)
+#     address: "/path/to/dnstap.sock"
+#   output:
+#     type: tcp              # unix | tcp (relay dials into this address)
+#     address: "10.11.12.13:6000"
+#   queue_size: 100000       # Max in-memory frames (drops when full)
+#   reconnect_interval: 5s   # Retry interval when input/output is unreachable
+
+# --- Kafka (Required Buffer) ---
+# Kafka auto-creates topics by default (auto.create.topics.enable=true).
+# In production, create the "dns.raw" topic manually with appropriate partitions & RF.
+kafka:
+  brokers:
+    - "localhost:9092"
+  topic:
+    raw: "dns.raw"             # Single topic for all DNS events
+    retention_ms: "604800000"  # Topic retention in ms (7d), -1 = infinite
+  producer:
+    batch_size: 100
+    flush_interval: 1s
+    compression: "none"        # none | gzip | lz4 | zstd
+  consumer:
+    group_id: "dns-flow"
+
+# --- Storage Outputs ---
+# Remove any section you don't need. At least one output is required.
+outputs:
+  # ClickHouse — native TCP (port 9000)
+  clickhouse:
+    hosts:
+      - "localhost:9000"
+    database: "dns_flow"
+    username: "default"
+    password: ""
+    compression: true
+    ttl_days: 30               # Data TTL in days, 0 = infinite
+
+  # InfluxDB v1 — HTTP API (port 8086)
+  influxdb:
+    url: "http://localhost:8086"
+    database: "dns_flow"
+    username: ""               # Basic Auth — leave empty for no auth
+    password: ""
+    measurement: "dns_query"   # Measurement name, default "dns_query"
+    retention_days: 0          # Retention duration in days, 0 = infinite
+
+  # InfluxDB v2 — HTTP API (port 8086/api/v2)
+  influxdb_v2:
+    url: "http://localhost:8086"
+    org: "my-org"
+    bucket: "dns_flow"
+    token: "my-token"
+    precision: "ns"
+    measurement: "dns_query"   # Measurement name, default "dns_query"
+    retention_days: 0          # Bucket retention in days, 0 = infinite
+
+  # File — JSON Lines with rotation
+  file:
+    path: "./data/dns-flow.json"
+    max_size_mb: 100
+    max_age_days: 7
+    max_backups: 3
+    compress: true              # gzip rotated files
+
+# --- Pipeline ---
+pipeline:
+  worker_count: 4              # Number of worker goroutines
+  queue_size: 100000           # Max in-flight events (drops when full)
+  enrichment:
+    geoip_enabled: true        # Enrich client IP with GeoIP data
+
+# --- GeoIP MaxMind ---
+geoip:
+  maxmind_db_path: "/data/geoip/GeoLite2-City.mmdb"
+  asn_db_path: "/data/geoip/GeoLite2-ASN.mmdb"

@@ -1,6 +1,12 @@
 # DNSTAP Source Configuration
 
-dns-flow receives DNSTAP framestream over TCP from any DNS server supporting the DNSTAP protocol ([RFC 8618](https://www.rfc-editor.org/info/rfc8618)).
+dns-flow receives DNSTAP framestream over TCP or from a Unix socket from any DNS server supporting the DNSTAP protocol ([RFC 8618](https://www.rfc-editor.org/info/rfc8618)).
+
+- `dnstap.type: tcp` (default) — dns-flow listens on `dnstap.listen`; sources dial into it.
+- `dnstap.type: unix` — dns-flow listens on the Unix socket (`dnstap.unix_socket`); sources (BIND, Unbound) connect to it.
+- `mode: relay` — dns-flow forwards untouched FSTRM frames from `relay.input` to `relay.output`.
+
+Connection direction: in both TCP and Unix socket cases, the DNS server acts as the **client** and dns-flow acts as the **server** that creates the socket/listener and accepts connections (the same role as `fstrm_capture`).
 
 ## DNSDist
 
@@ -46,20 +52,37 @@ options {
 };
 ```
 
-If BIND does not support TCP output (older versions), write to a Unix socket and forward with `fstrm_capture`:
+### BIND with Unix socket
+
+For older BIND versions without TCP DNSTAP output (or to avoid exposing the collector over TCP), BIND can connect to a local Unix socket created by dns-flow:
 
 ```text
 options {
     dnstap { all; };
-    dnstap-output unix "/var/run/named/dnstap.sock";
+    dnstap-output unix "/path/to/dnstap.sock";
 };
 ```
 
-Then run a relay to forward to dns-flow:
+Collector config (`mode: collect`) that listens on the socket and stores locally:
 
-```bash
-fstrm_capture -t protobuf:dnstap.Dnstap -u /var/run/named/dnstap.sock -w /dev/stdout | \
-  fstrm_sender -t protobuf:dnstap.Dnstap -u tcp://192.168.1.100:6000
+```yaml
+mode: collect
+dnstap:
+  type: unix
+  unix_socket: "/path/to/dnstap.sock"
+```
+
+Relay config (`mode: relay`) that listens on the socket and forwards the untouched FSTRM frames to a remote collector:
+
+```yaml
+mode: relay
+relay:
+  input:
+    type: unix
+    address: "/path/to/dnstap.sock"
+  output:
+    type: tcp
+    address: "192.168.1.100:6000"
 ```
 
 Restart:
@@ -67,6 +90,8 @@ Restart:
 ```bash
 systemctl restart named
 ```
+
+dns-flow creates the socket file, so the socket directory must be writable by the user running dns-flow, and the `named` user must be allowed to connect to it (e.g. same user, or a shared group with appropriate permissions on the directory).
 
 ## PowerDNS
 
@@ -93,17 +118,32 @@ Unbound requires compilation with `--enable-dnstap`. In `unbound.conf`:
 ```text
 server:
     dnstap:
-    dnstap-socket-path: "/var/run/unbound/dnstap.sock"
+    dnstap-socket-path: "/path/to/dnstap.sock"
     dnstap-tls: no
     dnstap-log-client-query-messages: yes
     dnstap-log-client-response-messages: yes
 ```
 
-Unbound only supports Unix socket output natively. Use a relay to forward to a remote collector:
+Unbound only supports Unix socket output natively and connects to a socket created by dns-flow. Use dns-flow relay mode to forward to a remote collector:
 
-```bash
-fstrm_sender -t protobuf:dnstap.Dnstap -u tcp://192.168.1.100:6000 \
-  -i /var/run/unbound/dnstap.sock
+```yaml
+mode: relay
+relay:
+  input:
+    type: unix
+    address: "/path/to/dnstap.sock"
+  output:
+    type: tcp
+    address: "192.168.1.100:6000"
+```
+
+Or read the socket directly in collector mode and store locally:
+
+```yaml
+mode: collect
+dnstap:
+  type: unix
+  unix_socket: "/path/to/dnstap.sock"
 ```
 
 ## Verification

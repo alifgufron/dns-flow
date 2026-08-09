@@ -21,6 +21,7 @@ import (
 	"github.com/alifgufron/dns-flow/internal/domain"
 	"github.com/alifgufron/dns-flow/internal/infrastructure/config"
 	"github.com/alifgufron/dns-flow/internal/infrastructure/logger"
+	"github.com/alifgufron/dns-flow/internal/relay"
 	"github.com/alifgufron/dns-flow/internal/usecase"
 )
 
@@ -50,6 +51,55 @@ func main() {
 
 	log := logger.Init(cfg.Server.LogLevel, cfg.Server.Name)
 
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "collect"
+	}
+
+	switch mode {
+	case "relay":
+		runRelay(cfg, log)
+	default:
+		runCollect(cfg, *cfgPath, log)
+	}
+}
+
+func runRelay(cfg *config.Config, log *slog.Logger) {
+	r := relay.New(relay.Config{
+		Input: relay.Endpoint{
+			Type:    cfg.Relay.Input.Type,
+			Address: cfg.Relay.Input.Address,
+		},
+		Output: relay.Endpoint{
+			Type:    cfg.Relay.Output.Type,
+			Address: cfg.Relay.Output.Address,
+		},
+		QueueSize:         cfg.Relay.QueueSize,
+		ReconnectInterval: cfg.Relay.ReconnectInterval,
+	}, log)
+
+	r.Start()
+	log.Info("dns-flow relay started")
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+
+	for {
+		sig := <-quit
+		switch sig {
+		case syscall.SIGHUP:
+			log.Info("config reload triggered by SIGHUP")
+			log.Info("relay config changes require restart to apply")
+		default:
+			log.Info("shutting down", "signal", sig.String())
+			r.Stop()
+			log.Info("shutdown complete")
+			return
+		}
+	}
+}
+
+func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 	geoipResolver := initGeoIP(cfg, log)
 
 	// --- Kafka producer (collector side) ---
@@ -59,6 +109,7 @@ func main() {
 		BatchSize:     cfg.Kafka.Producer.BatchSize,
 		FlushInterval: cfg.Kafka.Producer.FlushInterval,
 		Compression:   cfg.Kafka.Producer.Compression,
+		RetentionMS:   cfg.Kafka.Topic.RetentionMS,
 	}, log)
 
 	if err := kafkaProducer.Migrate(); err != nil {
@@ -93,15 +144,23 @@ func main() {
 		logger.Fatal(log, "failed to start pipeline", "error", err)
 	}
 
-	dnstapServer := dnstap.NewServer(cfg.DNSTap.Listen, collectorPipeline, log)
+	dnstapServer := dnstap.NewServer(dnstap.Config{
+		Type:       cfg.DNSTap.Type,
+		Listen:     cfg.DNSTap.Listen,
+		UnixSocket: cfg.DNSTap.UnixSocket,
+	}, collectorPipeline, log)
 	if err := dnstapServer.Start(); err != nil {
 		logger.Fatal(log, "failed to start dnstap server", "error", err)
 	}
 
 	go kafkaConsumer.Start(ctx)
 
+	dnstapDesc := cfg.DNSTap.Listen
+	if cfg.DNSTap.Type == "unix" {
+		dnstapDesc = cfg.DNSTap.UnixSocket
+	}
 	log.Info("dns-flow started",
-		"dnstap", cfg.DNSTap.Listen,
+		"dnstap", dnstapDesc,
 		"kafka", cfg.Kafka.Brokers,
 	)
 
@@ -113,7 +172,7 @@ func main() {
 		sig := <-quit
 		switch sig {
 		case syscall.SIGHUP:
-			handleReload(*cfgPath, log)
+			handleReload(cfgPath, log)
 		default:
 			log.Info("shutting down", "signal", sig.String())
 			kafkaConsumer.Stop()
@@ -170,30 +229,33 @@ func initStorages(cfg *config.Config, log *slog.Logger) []domain.Storage {
 			Password:    cfg.Outputs.ClickHouse.Password,
 			Compression: cfg.Outputs.ClickHouse.Compression,
 			PoolSize:    cfg.Outputs.ClickHouse.PoolSize,
+			TTLDays:     cfg.Outputs.ClickHouse.TTLDays,
 		}, log)
 		storages = append(storages, ch)
 	}
 
 	if cfg.Outputs.InfluxDB != nil {
 		inf := influxdbout.NewWriter(influxdbout.Config{
-			URL:              cfg.Outputs.InfluxDB.URL,
-			Database:         cfg.Outputs.InfluxDB.Database,
-			Username:         cfg.Outputs.InfluxDB.Username,
-			Password:         cfg.Outputs.InfluxDB.Password,
-			RetentionPolicy:  cfg.Outputs.InfluxDB.RetentionPolicy,
-			Measurement:      cfg.Outputs.InfluxDB.Measurement,
+			URL:             cfg.Outputs.InfluxDB.URL,
+			Database:        cfg.Outputs.InfluxDB.Database,
+			Username:        cfg.Outputs.InfluxDB.Username,
+			Password:        cfg.Outputs.InfluxDB.Password,
+			RetentionPolicy: cfg.Outputs.InfluxDB.RetentionPolicy,
+			RetentionDays:   cfg.Outputs.InfluxDB.RetentionDays,
+			Measurement:     cfg.Outputs.InfluxDB.Measurement,
 		}, log)
 		storages = append(storages, inf)
 	}
 
 	if cfg.Outputs.InfluxDBV2 != nil {
 		inf := influxdbv2.NewWriter(influxdbv2.Config{
-			URL:         cfg.Outputs.InfluxDBV2.URL,
-			Org:         cfg.Outputs.InfluxDBV2.Org,
-			Bucket:      cfg.Outputs.InfluxDBV2.Bucket,
-			Token:       cfg.Outputs.InfluxDBV2.Token,
-			Precision:   cfg.Outputs.InfluxDBV2.Precision,
-			Measurement: cfg.Outputs.InfluxDBV2.Measurement,
+			URL:           cfg.Outputs.InfluxDBV2.URL,
+			Org:           cfg.Outputs.InfluxDBV2.Org,
+			Bucket:        cfg.Outputs.InfluxDBV2.Bucket,
+			Token:         cfg.Outputs.InfluxDBV2.Token,
+			Precision:     cfg.Outputs.InfluxDBV2.Precision,
+			Measurement:   cfg.Outputs.InfluxDBV2.Measurement,
+			RetentionDays: cfg.Outputs.InfluxDBV2.RetentionDays,
 		}, log)
 		storages = append(storages, inf)
 	}
@@ -240,11 +302,23 @@ func handleReload(cfgPath string, log *slog.Logger) {
 		log.Warn("restart required to apply new log level")
 	}
 
+	dnstapDesc := newCfg.DNSTap.Listen
+	if newCfg.DNSTap.Type == "unix" {
+		dnstapDesc = newCfg.DNSTap.UnixSocket
+	}
 	log.Info("config reload complete",
-		"dnstap", newCfg.DNSTap.Listen,
+		"mode", modeOf(newCfg),
+		"dnstap", dnstapDesc,
 		"kafka", newCfg.Kafka.Brokers,
 		"outputs", outputSummary(newCfg),
 	)
+}
+
+func modeOf(cfg *config.Config) string {
+	if cfg.Mode == "relay" {
+		return "relay"
+	}
+	return "collect"
 }
 
 func outputSummary(cfg *config.Config) string {

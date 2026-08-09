@@ -5,10 +5,10 @@
 ```
 DNS Client → DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
                            ↓
-                    DNSTAP (Framestream TCP) [RFC 8618]
+            DNSTAP (Framestream TCP or Unix socket) [RFC 8618]
                            ↓
-                dns-flow collector
-               (decode + enrich + correlate)
+                dns-flow collector  OR  dns-flow relay
+              (decode + enrich + correlate)   (frame passthrough)
                            ↓
                   Kafka (mandatory buffer)
                    topic: dns.raw
@@ -21,6 +21,20 @@ DNS Client → DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
 ```
 
 Config reload via SIGHUP — critical changes log "restart required".
+
+## Relay Mode
+
+`mode: relay` runs dns-flow as a stateless FSTRM frame relay. It reads frames from an input endpoint (e.g. BIND's Unix socket) and forwards them, **payload untouched**, to an output endpoint (e.g. a remote dns-flow collector):
+
+```
+BIND → /path/to/dnstap.sock → dns-flow relay → TCP FSTRM → remote collector
+```
+
+- No DNSTAP decode, no Kafka, no GeoIP, no storage.
+- The content type negotiated with the input (e.g. `protobuf:dnstap.Dnstap`) is reused for the output handshake.
+- A unix input is **listened on** by the relay (the source dials in, like `fstrm_capture`); a tcp input and both output types are **dialed** by the relay.
+- Frames are buffered in an in-memory queue; when the queue is full, new frames are dropped (logged) so the producer is never blocked.
+- Both input and output reconnect automatically on failure.
 
 ## References
 
@@ -57,10 +71,12 @@ dns-flow/
 │   ├── usecase/
 │   │   ├── pipeline.go       # Bounded channel pipeline, worker pool
 │   │   └── correlator.go     # Query-response correlation (clientIP:dnsID state map)
+│   ├── relay/
+│   │   └── relay.go          # Stateless FSTRM frame relay (mode: relay)
 │   ├── adapter/
 │   │   ├── inbound/
 │   │   │   ├── dnstap/
-│   │   │   │   └── server.go # Framestream receiver + protobuf + miekg/dns parse (26 RR types)
+│   │   │   │   └── server.go # Framestream receiver (TCP or Unix socket listener; source dials in) + miekg/dns parse (26 RR types)
 │   │   │   └── kafka/
 │   │   │       └── consumer.go # Kafka consumer (topic → storage)
 │   │   └── outbound/

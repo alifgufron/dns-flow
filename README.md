@@ -1,6 +1,6 @@
 # DNS-Flow
 
-A production-grade DNS traffic flow collector. Receives DNSTAP from any DNS server (BIND, PowerDNS, Unbound, DNSDist, etc.), enriches with GeoIP, buffers through Kafka, and stores to ClickHouse, InfluxDB (v1/v2), or file.
+A DNS traffic flow collector. Receives DNSTAP from any DNS server (BIND, PowerDNS, Unbound, DNSDist, etc.) over TCP or a Unix socket, enriches with GeoIP, buffers through Kafka, and stores to ClickHouse, InfluxDB (v1/v2), or file. Can also run as a lightweight FSTRM frame relay (`mode: relay`).
 
 ## Architecture
 
@@ -19,11 +19,13 @@ Kafka is a **mandatory buffer** — every DNS event passes through Kafka before 
 
 ## Features
 
-- **DNSTAP framestream receiver** (compatible with any DNSTAP source: BIND, PowerDNS, Unbound, DNSDist, etc.) with full DNS wire parsing (26 RR types, EDNS options, DNSDist policy metadata)
+- **DNSTAP framestream receiver** over TCP (listen) or Unix socket (listen) — dns-flow creates the socket and accepts connections from any DNSTAP source (BIND, PowerDNS, Unbound, DNSDist, etc.) with full DNS wire parsing (26 RR types, EDNS options, DNSDist policy metadata)
+- **Relay mode** (`mode: relay`) — stateless FSTRM frame passthrough (e.g. BIND Unix socket → remote collector), no payload decoding, in-memory queue + auto-reconnect
 - **GeoIP enrichment** per client IP and per A/AAAA RDATA (country, city, ASN) via MaxMind
 - **Kafka mandatory buffer** (kafka-go, sync producer, compression: gzip/lz4/zstd)
 - **Query-response correlation** — matches CLIENT_QUERY ↔ CLIENT_RESPONSE by client IP + DNS ID; detects orphaned responses and unanswered queries
 - **Multiple outputs** — ClickHouse (native TCP batch), InfluxDB v1/v2 (HTTP line protocol), File (rotating JSON lines)
+- **Configurable retention** — ClickHouse TTL, InfluxDB retention policy/bucket, Kafka topic retention
 - **Graceful shutdown** — zero data loss on SIGINT/SIGTERM
 - **Live config reload** — SIGHUP re-reads config, logs changes
 - **Single binary** — `dns-flow -config config.yaml`
