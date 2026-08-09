@@ -2,17 +2,24 @@
 
 ## Overview
 
+dns-flow runs in one of two modes, selected by the `mode` key in the config.
+
+### `mode: collect` — full pipeline
+
 ```
 DNS Client → DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
-                           ↓
-            DNSTAP (Framestream TCP or Unix socket) [RFC 8618]
-                           ↓
-                dns-flow collector  OR  dns-flow relay
-              (decode + enrich + correlate)   (frame passthrough)
-                           ↓
+                           │
+                           │  DNSTAP framestream [RFC 8618]
+                           │  server dials in ─── TCP :6000 or Unix socket
+                           ▼
+                  dns-flow collect  (listener)
+                           │  decode (26 RR types, EDNS, policy metadata)
+                           │  enrich (MaxMind GeoIP: client IP + A/AAAA RDATA)
+                           │  correlate (CLIENT_QUERY ↔ CLIENT_RESPONSE, latency)
+                           ▼
                   Kafka (mandatory buffer)
                    topic: dns.raw
-                           ↓
+                           ▼
                  dns-flow consumer
                     ├── ClickHouse (dns_raw + dns_answers)
                     ├── InfluxDB v1 (dns_query)
@@ -20,21 +27,42 @@ DNS Client → DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
                     └── File (JSON Lines)
 ```
 
+Both the collector and the consumer run inside the same process; Kafka decouples
+them so storage outages never block DNSTAP ingestion.
+
+### `mode: relay` — stateless passthrough
+
+```
+DNS Server ──unix socket──▶ dns-flow relay ──TCP FSTRM──▶ dns-flow collect (remote)
+             (dials in)      (listens)        (dials out)     (listens)
+```
+
+No decode, no Kafka, no storage — see [Relay Mode](#relay-mode) below.
+
+### Connection direction
+
+In every case the DNS server acts as the **client**. dns-flow creates the
+listener (TCP port or Unix socket) and accepts connections, the same role as
+`fstrm_capture`. The only outbound connection dns-flow makes is the relay
+output, which dials the remote collector.
+
 Config reload via SIGHUP — critical changes log "restart required".
 
 ## Relay Mode
 
-`mode: relay` runs dns-flow as a stateless FSTRM frame relay. It reads frames from an input endpoint (e.g. BIND's Unix socket) and forwards them, **payload untouched**, to an output endpoint (e.g. a remote dns-flow collector):
+`mode: relay` runs dns-flow as a stateless FSTRM frame relay: it reads frames
+from `relay.input` and forwards them, **payload untouched**, to `relay.output`
+(typically a remote dns-flow collector).
 
-```
-BIND → /path/to/dnstap.sock → dns-flow relay → TCP FSTRM → remote collector
-```
-
-- No DNSTAP decode, no Kafka, no GeoIP, no storage.
+- No DNSTAP decode, no Kafka, no GeoIP, no storage — the frame bytes are never inspected.
 - The content type negotiated with the input (e.g. `protobuf:dnstap.Dnstap`) is reused for the output handshake.
 - A unix input is **listened on** by the relay (the source dials in, like `fstrm_capture`); a tcp input and both output types are **dialed** by the relay.
 - Frames are buffered in an in-memory queue; when the queue is full, new frames are dropped (logged) so the producer is never blocked.
 - Both input and output reconnect automatically on failure.
+
+Because relay mode holds frames only in memory, a long output outage combined
+with a full queue drops frames. Use it as a transport hop, not as a buffer —
+the durability guarantee comes from Kafka on the collect side.
 
 ## References
 

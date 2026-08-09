@@ -20,6 +20,10 @@ import (
 	framestream "github.com/farsightsec/golang-framestream"
 )
 
+// unixSocketMode is applied to a unix input socket so a producer running under
+// a different user but in the same group can connect to it.
+const unixSocketMode = 0o660
+
 type Endpoint struct {
 	Type    string
 	Address string
@@ -200,6 +204,13 @@ func (r *Relay) openInput(ln *net.Listener) (net.Conn, error) {
 			l, err := net.Listen("unix", r.cfg.Input.Address)
 			if err != nil {
 				return nil, err
+			}
+			// The producer (e.g. BIND) connects to this socket and needs write
+			// access; 0660 requires it to share the socket's group.
+			if err := os.Chmod(r.cfg.Input.Address, unixSocketMode); err != nil {
+				l.Close()
+				return nil, fmt.Errorf("chmod relay input socket %s: %w",
+					r.cfg.Input.Address, err)
 			}
 			*ln = l
 			r.logger.Info("relay input listening", "socket", r.cfg.Input.Address)

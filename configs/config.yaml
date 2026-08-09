@@ -15,7 +15,8 @@ mode: collect
 dnstap:
   type: tcp                  # tcp (default) | unix
   listen: "0.0.0.0:6000"     # Bind address for TCP FSTRM (source dials here)
-  # unix_socket: "/path/to/dnstap.sock"   # Used when type: unix (dns-flow creates & listens)
+  # unix_socket: "/run/dns-flow/dnstap.sock"  # Used when type: unix (dns-flow creates & listens)
+  #                                           # FreeBSD: /var/run/dns-flow/dnstap.sock
 
 # --- Relay (used when mode: relay) ---
 # unix input is listened on (source dials in, like fstrm_capture);
@@ -79,8 +80,10 @@ outputs:
     retention_days: 0          # Bucket retention in days, 0 = infinite
 
   # File — JSON Lines with rotation
+  # Use an absolute path when running as a service (Linux: /var/lib/dns-flow,
+  # FreeBSD: /var/db/dns-flow); the directory must be writable by the service user.
   file:
-    path: "./data/dns-flow.json"
+    path: "/var/lib/dns-flow/dns-flow.json"
     max_size_mb: 100
     max_age_days: 7
     max_backups: 3

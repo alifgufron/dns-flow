@@ -8,6 +8,12 @@ dns-flow receives DNSTAP framestream over TCP or from a Unix socket from any DNS
 
 Connection direction: in both TCP and Unix socket cases, the DNS server acts as the **client** and dns-flow acts as the **server** that creates the socket/listener and accepts connections (the same role as `fstrm_capture`).
 
+Replace `/path/to/dnstap.sock` in the examples below with a path inside the
+runtime directory created by the service unit — `/run/dns-flow/dnstap.sock` on
+Linux, `/var/run/dns-flow/dnstap.sock` on FreeBSD. dns-flow creates the socket
+with mode `0660`, so the DNS server's user must be in the `dnsflow` group; see
+[Unix socket permissions](usage.md#unix-socket-permissions).
+
 ## DNSDist
 
 In `/etc/dnsdist/dnsdist.conf`:

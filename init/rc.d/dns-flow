@@ -12,6 +12,8 @@
 #   dns_flow_config="/usr/local/etc/dns-flow.yaml"
 #   dns_flow_user="dnsflow"
 #   dns_flow_group="dnsflow"
+#   dns_flow_logfile="/var/log/dns-flow/dns-flow.log"   # empty = syslog
+#   dns_flow_rundir="/var/run/dns-flow"                 # unix socket location
 
 . /etc/rc.subr
 
@@ -24,14 +26,67 @@ load_rc_config "$name"
 : ${dns_flow_config:="/usr/local/etc/dns-flow.yaml"}
 : ${dns_flow_user:="dnsflow"}
 : ${dns_flow_group:="dnsflow"}
+: ${dns_flow_logfile:="/var/log/dns-flow/dns-flow.log"}
+: ${dns_flow_rundir:="/var/run/dns-flow"}
+: ${dns_flow_datadir:="/var/db/dns-flow"}
 
 pidfile="/var/run/${name}.pid"
 procname="/usr/local/sbin/dns-flow"
 command="/usr/sbin/daemon"
-command_args="-f -p ${pidfile} -u ${dns_flow_user} ${procname} -config ${dns_flow_config}"
+
+# daemon(8) drops privileges and supervises the process. Output is sent to a
+# logfile when configured, otherwise to syslog, so log data is never lost.
+if [ -n "${dns_flow_logfile}" ]; then
+	_output_args="-o ${dns_flow_logfile}"
+else
+	_output_args="-S -T ${name}"
+fi
+
+command_args="-f -p ${pidfile} -u ${dns_flow_user} ${_output_args} \
+	${procname} -config ${dns_flow_config}"
 
 start_precmd="${name}_prestart"
 reload_cmd="${name}_reload"
+status_cmd="${name}_status"
+extra_commands="reload configtest"
+configtest_cmd="${name}_configtest"
+
+dns_flow_prestart() {
+	if [ ! -f "${dns_flow_config}" ]; then
+		err 1 "Config file ${dns_flow_config} not found"
+	fi
+
+	if ! pw groupshow "${dns_flow_group}" >/dev/null 2>&1; then
+		echo "Group ${dns_flow_group} does not exist; create with:"
+		echo "  pw groupadd ${dns_flow_group}"
+		return 1
+	fi
+
+	if ! pw usershow "${dns_flow_user}" >/dev/null 2>&1; then
+		echo "User ${dns_flow_user} does not exist; create with:"
+		echo "  pw adduser ${dns_flow_user} -g ${dns_flow_group} -d /nonexistent -s /usr/sbin/nologin"
+		return 1
+	fi
+
+	# Runtime directory holds the DNSTAP unix socket created by dns-flow.
+	# Mode 750 with the service group lets a DNS server in that group connect.
+	install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 "${dns_flow_rundir}"
+	install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 "${dns_flow_datadir}"
+
+	if [ -n "${dns_flow_logfile}" ]; then
+		install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 \
+			"$(dirname "${dns_flow_logfile}")"
+	fi
+}
+
+dns_flow_configtest() {
+	if [ ! -f "${dns_flow_config}" ]; then
+		echo "Config file ${dns_flow_config} not found"
+		return 1
+	fi
+	echo "Config file ${dns_flow_config} found."
+	echo "Note: full validation happens at startup; check the log after starting."
+}
 
 dns_flow_reload() {
 	if [ ! -f "${pidfile}" ]; then
@@ -48,20 +103,6 @@ dns_flow_reload() {
 	fi
 }
 
-dns_flow_prestart() {
-	if [ ! -f "${dns_flow_config}" ]; then
-		echo "Config file ${dns_flow_config} not found"
-		return 1
-	fi
-	if ! pw usershow "${dns_flow_user}" >/dev/null 2>&1; then
-		echo "User ${dns_flow_user} does not exist; create with:"
-		echo "  pw adduser ${dns_flow_user} -d /nonexistent -s /usr/sbin/nologin"
-		return 1
-	fi
-}
-
-# Override status command to check pidfile manually
-status_cmd="${name}_status"
 dns_flow_status() {
 	if [ ! -f "${pidfile}" ]; then
 		echo "${name} is not running (no pidfile)."

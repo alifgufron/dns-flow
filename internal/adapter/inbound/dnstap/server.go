@@ -17,6 +17,10 @@ import (
 	"github.com/alifgufron/dns-flow/internal/domain"
 )
 
+// unixSocketMode is applied to the DNSTAP unix socket so a DNS source running
+// under a different user but in the same group can connect to it.
+const unixSocketMode = 0o660
+
 type Config struct {
 	Type       string
 	Listen     string
@@ -49,7 +53,6 @@ func (s *Server) Start() error {
 		network = "unix"
 		addr = s.cfg.UnixSocket
 		os.Remove(addr)
-		s.logger.Info("dnstap listening on unix socket", "socket", addr)
 	}
 
 	var err error
@@ -58,7 +61,17 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	s.logger.Info("dnstap server listening", "address", addr)
+	if s.cfg.Type == "unix" {
+		// The DNS source (e.g. BIND) connects to this socket and needs write
+		// access. 0660 keeps it off-limits to other users; the source's user
+		// must share the group that owns the socket.
+		if err := os.Chmod(addr, unixSocketMode); err != nil {
+			s.ln.Close()
+			return fmt.Errorf("chmod dnstap socket %s: %w", addr, err)
+		}
+	}
+
+	s.logger.Info("dnstap server listening", "address", addr, "type", network)
 
 	go s.acceptLoop(ctx)
 	return nil

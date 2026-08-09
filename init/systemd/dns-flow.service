@@ -1,8 +1,8 @@
 [Unit]
 Description=DNS-Flow — DNSTAP collector and DNS traffic flow storage
 Documentation=https://github.com/alifgufron/dns-flow
-After=network.target kafka.service
-Wants=kafka.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -14,16 +14,35 @@ Restart=on-failure
 RestartSec=5
 LimitNOFILE=1048576
 
-; Data directory
+; Working directory so relative paths in the config resolve predictably.
+WorkingDirectory=/var/lib/dns-flow
+
+; /run/dns-flow holds the DNSTAP unix socket created by dns-flow.
+; Mode 0750 lets a DNS server in the dnsflow group connect to the socket.
 RuntimeDirectory=dns-flow
+RuntimeDirectoryMode=0750
 StateDirectory=dns-flow
+StateDirectoryMode=0750
 LogsDirectory=dns-flow
+LogsDirectoryMode=0750
 
 ; Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=true
-ProtectSystem=full
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 AmbientCapabilities=
 

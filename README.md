@@ -4,18 +4,34 @@ A DNS traffic flow collector. Receives DNSTAP from any DNS server (BIND, PowerDN
 
 ## Architecture
 
+`mode: collect` — the full pipeline. dns-flow listens (TCP or Unix socket), the DNS server connects to it:
+
 ```
-DNS Server (BIND/PowerDNS/Unbound/DNSDist/...) → DNSTAP → Collector (decode + enrich + correlate)
-                       ↓
-                   Kafka (mandatory buffer)
-                       ↓
-                   Consumer
-                     ├── ClickHouse
-                     ├── InfluxDB v1 / v2
-                     └── File (JSON Lines)
+DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
+        │  DNSTAP / FSTRM  (dials in)
+        ▼
+  dns-flow collect ── listens on TCP :6000 or a Unix socket
+        │  decode + enrich (GeoIP) + correlate (query ↔ response)
+        ▼
+  Kafka  (mandatory buffer, topic: dns.raw)
+        │
+        ▼
+  dns-flow consumer
+        ├── ClickHouse
+        ├── InfluxDB v1 / v2
+        └── File (JSON Lines)
 ```
 
-Kafka is a **mandatory buffer** — every DNS event passes through Kafka before reaching storage, ensuring zero data loss and replay capability.
+`mode: relay` — stateless FSTRM passthrough for hosts that cannot reach the collector directly:
+
+```
+DNS Server ──unix socket──▶ dns-flow relay ──TCP FSTRM──▶ dns-flow collect (remote)
+                            (no decode, no Kafka, no storage)
+```
+
+Kafka is a **mandatory buffer** in collect mode — every DNS event passes through Kafka before reaching storage, ensuring zero data loss and replay capability. Relay mode bypasses Kafka entirely; it only forwards frames.
+
+Connection direction: in every case the DNS server is the **client**. dns-flow (collect, or relay on a unix input) creates the listener/socket and accepts connections — the same role as `fstrm_capture`.
 
 ## Features
 

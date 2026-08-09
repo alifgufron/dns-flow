@@ -1,28 +1,146 @@
 # DNS-Flow Usage Guide
 
+## How it fits together
+
+`mode: collect` — dns-flow listens, the DNS server connects to it, and every
+event is buffered through Kafka before it reaches storage:
+
+```
+DNS Server ──DNSTAP (TCP :6000 or unix socket)──▶ dns-flow collect
+                                                       │ decode + GeoIP + correlate
+                                                       ▼
+                                              Kafka  topic: dns.raw
+                                                       ▼
+                                              dns-flow consumer
+                                                ├── ClickHouse
+                                                ├── InfluxDB v1 / v2
+                                                └── File (JSON Lines)
+```
+
+`mode: relay` — for a DNS host that cannot reach the collector directly. It
+forwards raw FSTRM frames, with no decode, no Kafka and no storage:
+
+```
+DNS Server ──unix socket──▶ dns-flow relay ──TCP FSTRM──▶ dns-flow collect (remote)
+```
+
+See [architecture.md](architecture.md) for the detailed data flow.
+
 ## Prerequisites
 
 - Go 1.25+ (to build from source)
-- [Kafka cluster](kafka-setup.md) (required — all events pass through Kafka)
+- [Kafka cluster](kafka-setup.md) — required in collect mode; all events pass through Kafka (not needed for `mode: relay`)
 - At least one [output storage](outputs.md): ClickHouse, InfluxDB v1/v2, or File
 - (Optional) MaxMind GeoLite2 databases for GeoIP enrichment
 - A DNS server with [DNSTAP output](dnstap-sources.md) (DNSDist, BIND, PowerDNS, Unbound, etc.)
 
 ## Build
 
+`make build` detects the host OS and architecture and produces `bin/dns-flow-<os>-<arch>`:
+
 ```bash
 git clone <repo-url> dns-flow
 cd dns-flow
 make build
-# or: go build -o bin/dns-flow ./cmd/dns-flow/
 ```
 
-Cross-compile for FreeBSD amd64:
+Cross-compile:
 
 ```bash
-make build-freebsd
-# or: GOOS=freebsd GOARCH=amd64 go build -o bin/dns-flow-freebsd ./cmd/dns-flow/
+make build-linux      # bin/dns-flow-linux-amd64
+make build-freebsd    # bin/dns-flow-freebsd-amd64
+make build-all        # both
+make build GOOS=linux GOARCH=arm64   # any other target
 ```
+
+## Install
+
+`make install` detects the host OS and installs the matching layout. It creates
+the `dnsflow` service user, installs the binary and service unit, and installs
+the config **only if it does not already exist** (the current template is always
+written to `<config>.sample`, so an upgrade never overwrites a live config).
+
+```bash
+sudo make install                     # host OS layout
+sudo make install GOOS=freebsd        # force the FreeBSD layout
+make install DESTDIR=/tmp/stage       # staging for packaging (skips user creation)
+```
+
+| Path | Linux | FreeBSD |
+|------|-------|---------|
+| Binary | `/usr/local/sbin/dns-flow` | `/usr/local/sbin/dns-flow` |
+| Config | `/etc/dns-flow.yaml` | `/usr/local/etc/dns-flow.yaml` |
+| Service unit | `/etc/systemd/system/dns-flow.service` | `/usr/local/etc/rc.d/dns-flow` |
+| Data | `/var/lib/dns-flow` | `/var/db/dns-flow` |
+| Runtime (unix socket) | `/run/dns-flow` | `/var/run/dns-flow` |
+| Logs | `/var/log/dns-flow` | `/var/log/dns-flow` |
+
+The config is installed mode `640` owned by group `dnsflow` because it contains
+storage passwords and API tokens.
+
+Enable the service:
+
+```bash
+# Linux
+sudo systemctl daemon-reload && sudo systemctl enable --now dns-flow
+sudo systemctl reload dns-flow        # SIGHUP config reload
+
+# FreeBSD
+sudo sysrc dns_flow_enable=YES
+sudo service dns-flow start
+sudo service dns-flow reload          # SIGHUP config reload
+```
+
+`make uninstall` removes the binary and service unit but keeps the config, data
+directory, and service user.
+
+### Unix socket permissions
+
+When `dnstap.type: unix` (or `relay.input.type: unix`), dns-flow creates the
+socket with mode `0660` owned by the service user and group. The DNS server
+connecting to it must be able to write to the socket, so add its user to the
+`dnsflow` group (or run both under the same group):
+
+```bash
+sudo usermod -aG dnsflow bind      # Linux (BIND runs as 'bind' or 'named')
+sudo pw groupmod dnsflow -m bind   # FreeBSD
+```
+
+Place the socket in the runtime directory (`/run/dns-flow/dnstap.sock` on Linux,
+`/var/run/dns-flow/dnstap.sock` on FreeBSD). Avoid `/tmp`: the systemd unit sets
+`PrivateTmp=true`, so a socket created there is invisible to other services.
+
+## Kafka topic
+
+Collect mode requires a reachable Kafka cluster and the `dns.raw` topic. Relay
+mode does not use Kafka at all.
+
+**Development** — dns-flow auto-creates the topic at startup (1 partition,
+replication factor 1) if it does not exist, so no action is needed.
+
+**Production** — create the topic *before* starting dns-flow so you control the
+partition count and replication factor:
+
+```bash
+kafka-topics.sh --create \
+  --topic dns.raw \
+  --partitions 6 \
+  --replication-factor 3 \
+  --bootstrap-server localhost:9092
+```
+
+Verify it:
+
+```bash
+kafka-topics.sh --describe --topic dns.raw --bootstrap-server localhost:9092
+```
+
+Events are partitioned by hash of `qname`, so ordering is guaranteed per-domain
+and the partition count sets the maximum consumer parallelism. Retention is
+controlled by `kafka.topic.retention_ms` in the config and applied on startup.
+
+Full broker setup, partition sizing, replay and offset management:
+[kafka-setup.md](kafka-setup.md).
 
 ## Configuration
 
@@ -90,7 +208,7 @@ outputs:
     retention_days: 0          # Bucket retention in days, 0 = infinite
 
   file:
-    path: "./data/dns-flow.json"
+    path: "/var/lib/dns-flow/dns-flow.json"
     max_size_mb: 100
     max_age_days: 7
     max_backups: 3
@@ -164,7 +282,7 @@ outputs:
     retention_days: 0
 
   file:
-    path: "./data/dns-flow.json"
+    path: "/var/lib/dns-flow/dns-flow.json"
     max_size_mb: 100
     max_age_days: 7
     max_backups: 3
@@ -226,7 +344,7 @@ kafka:
 
 outputs:
   file:
-    path: "./data/dns-flow.json"
+    path: "/var/lib/dns-flow/dns-flow.json"
 
 pipeline:
   worker_count: 4
