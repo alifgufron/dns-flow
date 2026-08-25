@@ -11,16 +11,18 @@ import (
 )
 
 type Pipeline struct {
-	storages    []domain.Storage
-	geoip       domain.GeoIPResolver
-	correlator  *QueryCorrelator
-	workers     int
-	queueSize   int
-	queue       chan domain.DNSRawEvent
-	cancel      context.CancelFunc
-	die         chan struct{}
-	wg          sync.WaitGroup
-	logger      *slog.Logger
+	storages   []domain.Storage
+	geoip      domain.GeoIPResolver
+	correlator *QueryCorrelator
+	anomaly    *AnomalyDetector
+	workers    int
+	queueSize  int
+	queue      chan domain.DNSRawEvent
+	cancel     context.CancelFunc
+	die        chan struct{}
+	once       sync.Once
+	wg         sync.WaitGroup
+	logger     *slog.Logger
 }
 
 func NewPipeline(
@@ -40,6 +42,7 @@ func NewPipeline(
 		logger:    logger,
 	}
 	p.correlator = NewQueryCorrelator(logger)
+	p.anomaly = NewAnomalyDetector()
 	return p
 }
 
@@ -75,22 +78,25 @@ func (p *Pipeline) Run() error {
 }
 
 func (p *Pipeline) Shutdown() error {
-	if p.cancel != nil {
-		p.cancel()
-	}
-	close(p.die)
-	close(p.queue)
-	p.wg.Wait()
+	p.once.Do(func() {
+		close(p.die)
+		close(p.queue)
+		p.wg.Wait()
 
-	p.correlator.Stop()
-
-	for _, s := range p.storages {
-		if err := s.Close(); err != nil {
-			p.logger.Error("storage close error", "name", s.Name(), "error", err)
+		if p.cancel != nil {
+			p.cancel()
 		}
-	}
 
-	p.logger.Info("pipeline shut down gracefully")
+		p.correlator.Stop()
+
+		for _, s := range p.storages {
+			if err := s.Close(); err != nil {
+				p.logger.Error("storage close error", "name", s.Name(), "error", err)
+			}
+		}
+
+		p.logger.Info("pipeline shut down gracefully")
+	})
 	return nil
 }
 
@@ -103,16 +109,8 @@ func (p *Pipeline) Health() map[string]string {
 
 func (p *Pipeline) worker(ctx context.Context) {
 	defer p.wg.Done()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-p.queue:
-			if !ok {
-				return
-			}
-			p.processEvent(ctx, event)
-		}
+	for event := range p.queue {
+		p.processEvent(ctx, event)
 	}
 }
 
@@ -160,6 +158,10 @@ func (p *Pipeline) processEvent(ctx context.Context, event domain.DNSRawEvent) {
 				}
 			}
 		}
+	}
+
+	if p.anomaly != nil {
+		p.anomaly.Detect(&event)
 	}
 
 	for _, s := range p.storages {

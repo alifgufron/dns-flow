@@ -294,10 +294,23 @@ func (w *Writer) toLineProtocol(event domain.DNSRawEvent) string {
 		escapeField(event.GeoIP.ClientIP),
 	)
 
+	anomalyFields := fmt.Sprintf(",is_anomaly=%s,anomaly_score=%f,entropy_score=%f",
+		boolToInflux(event.Anomaly.Detected),
+		event.Anomaly.Score,
+		event.Anomaly.EntropyScore,
+	)
+
+	anomalyTypeTag := ""
+	if event.Anomaly.Detected && len(event.Anomaly.Types) > 0 {
+		anomalyTypeTag = fmt.Sprintf(",is_anomaly=true,anomaly_type=%s", escapeTag(strings.Join(event.Anomaly.Types, "|")))
+	} else {
+		anomalyTypeTag = ",is_anomaly=false"
+	}
+
 	tags := fmt.Sprintf(
 		"identity=%s,operation=%s,"+
 			"dnstap_version=%s,dnstap_type=%s,"+
-			"client_country=%s,client_city=%s,client_asn=%s",
+			"client_country=%s,client_city=%s,client_asn=%s%s",
 		escapeTag(event.DNSTap.Identity),
 		escapeTag(event.DNSTap.Operation),
 		escapeTag(event.DNSTap.Version),
@@ -305,6 +318,7 @@ func (w *Writer) toLineProtocol(event domain.DNSRawEvent) string {
 		escapeTag(event.GeoIP.ClientCountry),
 		escapeTag(event.GeoIP.ClientCity),
 		escapeTag(event.GeoIP.ClientASN),
+		anomalyTypeTag,
 	)
 
 	policyFields := ""
@@ -323,7 +337,7 @@ func (w *Writer) toLineProtocol(event domain.DNSRawEvent) string {
 		)
 	}
 
-	return fmt.Sprintf("%s,%s %s%s %d", w.measurement(), tags, fields, policyFields, ts)
+	return fmt.Sprintf("%s,%s %s%s%s %d", w.measurement(), tags, fields, anomalyFields, policyFields, ts)
 }
 
 func escapeField(s string) string {

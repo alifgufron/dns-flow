@@ -153,10 +153,13 @@ func (r *Relay) readerLoop() {
 			continue
 		}
 
-		r.contentType.Store(reader.ContentType())
+		ctBytes := reader.ContentType()
+		ctCopy := make([]byte, len(ctBytes))
+		copy(ctCopy, ctBytes)
+		r.contentType.Store(ctCopy)
 		r.logger.Info("relay input connected",
 			"endpoint", r.cfg.Input.Address,
-			"content_type", string(reader.ContentType()))
+			"content_type", string(ctCopy))
 
 		for {
 			select {

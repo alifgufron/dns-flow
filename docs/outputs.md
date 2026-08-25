@@ -124,6 +124,15 @@
     "client-country": "",
     "client-city": "",
     "client-asn": ""
+  },
+  "anomaly": {
+    "detected": true,
+    "types": [
+      "DNS_TUNNELING",
+      "SUSPICIOUS_TLD"
+    ],
+    "score": 6,
+    "entropy_score": 4.62
   }
 }
 ```
@@ -133,10 +142,8 @@
 ### Tables
 
 Only **2 tables** auto-created by dns-flow:
-- `dns_raw` — 1 row per DNS event
+- `dns_raw` — 1 row per DNS event (includes real-time anomaly analysis columns)
 - `dns_answers` — 1 row per resource record (normalized)
-
-Materialized Views for analytics are **not auto-created** — create manually as needed.
 
 ```sql
 -- dns_raw: 1 row per DNS event
@@ -173,7 +180,11 @@ CREATE TABLE dns_flow.dns_raw (
     policy_match String, policy_value String,
     http_protocol String,
     peer_name String, query_zone String,
-    extra String
+    extra String,
+    is_anomaly UInt8,
+    anomaly_types Array(String),
+    anomaly_score Float32,
+    entropy_score Float32
 ) ENGINE = MergeTree
 ORDER BY (timestamp, query_ip)
 TTL toDateTime(timestamp) + INTERVAL 30 DAY;   -- configurable via ttl_days
@@ -198,37 +209,12 @@ TTL toDateTime(timestamp) + INTERVAL 30 DAY;   -- configurable via ttl_days
 
 New columns are added automatically via ALTER TABLE at startup (non-fatal).
 
-### Materialized View for Analytics
+### Auto-Created Materialized Views for Analytics
 
-MVs are not created automatically. Create them manually as needed:
+dns-flow automatically creates and manages Materialized Views for high-performance real-time analytics:
 
 ```sql
--- 1) MV: query-response pairs (join on QNAME + client_ip + dns_id)
-CREATE MATERIALIZED VIEW dns_flow.mv_query_response
-ENGINE = MergeTree ORDER BY (qname, client_ip)
-AS SELECT
-    r.timestamp AS response_time,
-    r.qname,
-    r.qtype,
-    r.query_ip AS client_ip,
-    r.client_country,
-    r.client_city,
-    r.client_asn,
-    r.response_ip,
-    r.rcode,
-    r.latency_ms,
-    r.ancount,
-    q.timestamp AS query_time,
-    q.query_port
-FROM dns_flow.dns_raw AS r
-INNER JOIN dns_flow.dns_raw AS q
-  ON r.qname = q.qname
-  AND r.query_ip = q.query_ip
-  AND r.dns_id = q.dns_id
-  AND r.qr = 1 AND q.qr = 0
-  AND abs(dateDiff('millisecond', r.timestamp, q.timestamp)) < 100;
-
--- 2) MV: top domains per hour
+-- 1) MV: top domains per hour (Auto-created)
 CREATE MATERIALIZED VIEW dns_flow.mv_top_domains_hourly
 ENGINE = SummingMergeTree ORDER BY (hour, qname)
 AS SELECT
@@ -236,27 +222,32 @@ AS SELECT
     qname,
     count() AS queries,
     countIf(qr = 1) AS responses,
-    countIf(rcode = 'NXDOMAIN') AS nxdomains
+    countIf(rcode = 'NXDOMAIN') AS nxdomains,
+    countIf(is_anomaly = 1) AS anomalies
 FROM dns_flow.dns_raw
 GROUP BY hour, qname;
 
--- 3) MV: client ASN traffic summary
-CREATE MATERIALIZED VIEW dns_flow.mv_client_asn_summary
-ENGINE = SummingMergeTree ORDER BY (hour, client_asn)
+-- 2) MV: dns anomalies per hour (Auto-created)
+CREATE MATERIALIZED VIEW dns_flow.mv_dns_anomalies_hourly
+ENGINE = SummingMergeTree ORDER BY (hour, query_ip)
 AS SELECT
     toStartOfHour(timestamp) AS hour,
-    client_asn,
+    query_ip,
     client_country,
-    count() AS queries,
-    sum(latency_ms) AS total_latency_ms
+    count() AS total_anomalies,
+    countIf(has(anomaly_types, 'DNS_TUNNELING')) AS tunneling_count,
+    countIf(has(anomaly_types, 'DGA_DOMAINS')) AS dga_count,
+    countIf(has(anomaly_types, 'NXDOMAIN_FLOOD')) AS nxdomain_flood_count,
+    countIf(has(anomaly_types, 'REBINDING_ATTACK_RISK')) AS rebinding_count
 FROM dns_flow.dns_raw
-GROUP BY hour, client_asn, client_country;
+WHERE is_anomaly = 1
+GROUP BY hour, query_ip, client_country;
 ```
 
-Query from an MV directly:
+Query from MVs directly:
 
 ```sql
-SELECT qname, queries, nxdomains
+SELECT qname, queries, anomalies
 FROM dns_flow.mv_top_domains_hourly
 WHERE hour >= now() - INTERVAL 24 HOUR
 ORDER BY queries DESC

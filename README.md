@@ -37,10 +37,10 @@ Connection direction: in every case the DNS server is the **client**. dns-flow (
 
 - **DNSTAP framestream receiver** over TCP (listen) or Unix socket (listen) — dns-flow creates the socket and accepts connections from any DNSTAP source (BIND, PowerDNS, Unbound, DNSDist, etc.) with full DNS wire parsing (26 RR types, EDNS options, DNSDist policy metadata)
 - **Relay mode** (`mode: relay`) — stateless FSTRM frame passthrough (e.g. BIND Unix socket → remote collector), no payload decoding, in-memory queue + auto-reconnect
-- **GeoIP enrichment** per client IP and per A/AAAA RDATA (country, city, ASN) via MaxMind
 - **Kafka mandatory buffer** (kafka-go, sync producer, compression: gzip/lz4/zstd)
 - **Query-response correlation** — matches CLIENT_QUERY ↔ CLIENT_RESPONSE by client IP + DNS ID; detects orphaned responses and unanswered queries
-- **Multiple outputs** — ClickHouse (native TCP batch), InfluxDB v1/v2 (HTTP line protocol), File (rotating JSON lines)
+- **Real-time DNS Anomaly Detection & Threat Analytics** — 7 built-in detection engines (DNS Tunneling via Shannon Entropy, DGA domains, NXDOMAIN flood, DNS Amplification risk, DNS Rebinding, Suspicious TLDs, High-rate floods)
+- **Multiple outputs** — ClickHouse (native TCP batch + auto Materialized Views), InfluxDB v1/v2 (HTTP line protocol), File (rotating JSON lines)
 - **Configurable retention** — ClickHouse TTL, InfluxDB retention policy/bucket, Kafka topic retention
 - **Graceful shutdown** — zero data loss on SIGINT/SIGTERM
 - **Live config reload** — SIGHUP re-reads config, logs changes

@@ -109,10 +109,11 @@ func (w *Writer) Migrate() error {
 	}
 
 	// Reconnect to the target database
-	w.conn, err = clickhouse.Open(connectOpts(w.cfg.Database))
+	targetConn, err := clickhouse.Open(connectOpts(w.cfg.Database))
 	if err != nil {
 		return fmt.Errorf("clickhouse: reconnect failed: %w", err)
 	}
+	w.conn = targetConn
 
 	db := w.cfg.Database
 
@@ -176,7 +177,11 @@ func (w *Writer) Migrate() error {
 				peer_name String,
 				query_zone String,
 				extra String,
-				edns_options String
+				edns_options String,
+				is_anomaly UInt8,
+				anomaly_types Array(String),
+				anomaly_score Float32,
+				entropy_score Float32
 				) ENGINE = MergeTree
 				ORDER BY (timestamp, query_ip)
 				%s
@@ -232,6 +237,10 @@ func (w *Writer) Migrate() error {
 		fmt.Sprintf(`ALTER TABLE "%s".dns_answers ADD COLUMN IF NOT EXISTS query_ip String`, db),
 		fmt.Sprintf(`ALTER TABLE "%s".dns_answers ADD COLUMN IF NOT EXISTS answer_city String`, db),
 		fmt.Sprintf(`ALTER TABLE "%s".dns_raw ADD COLUMN IF NOT EXISTS edns_options String`, db),
+		fmt.Sprintf(`ALTER TABLE "%s".dns_raw ADD COLUMN IF NOT EXISTS is_anomaly UInt8`, db),
+		fmt.Sprintf(`ALTER TABLE "%s".dns_raw ADD COLUMN IF NOT EXISTS anomaly_types Array(String)`, db),
+		fmt.Sprintf(`ALTER TABLE "%s".dns_raw ADD COLUMN IF NOT EXISTS anomaly_score Float32`, db),
+		fmt.Sprintf(`ALTER TABLE "%s".dns_raw ADD COLUMN IF NOT EXISTS entropy_score Float32`, db),
 	}
 	if w.cfg.TTLDays > 0 {
 		modTTL := fmt.Sprintf(`ALTER TABLE "%s".dns_raw MODIFY TTL toDateTime(timestamp) + INTERVAL %d DAY`, db, w.cfg.TTLDays)
@@ -247,6 +256,45 @@ func (w *Writer) Migrate() error {
 	for _, q := range alterQueries {
 		if err := w.conn.Exec(ctx, q); err != nil {
 			w.logger.Warn("clickhouse: alter table failed", "error", err)
+		}
+	}
+
+	// Auto-create Materialized Views for Top Analytics & Anomalies if missing
+	mvQueries := []string{
+		fmt.Sprintf(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS "%s".mv_top_domains_hourly
+			ENGINE = SummingMergeTree ORDER BY (hour, qname)
+			AS SELECT
+			    toStartOfHour(timestamp) AS hour,
+			    qname,
+			    count() AS queries,
+			    countIf(qr = 1) AS responses,
+			    countIf(rcode = 'NXDOMAIN') AS nxdomains,
+			    countIf(is_anomaly = 1) AS anomalies
+			FROM "%s".dns_raw
+			GROUP BY hour, qname
+		`, db, db),
+		fmt.Sprintf(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS "%s".mv_dns_anomalies_hourly
+			ENGINE = SummingMergeTree ORDER BY (hour, query_ip)
+			AS SELECT
+			    toStartOfHour(timestamp) AS hour,
+			    query_ip,
+			    client_country,
+			    count() AS total_anomalies,
+			    countIf(has(anomaly_types, 'DNS_TUNNELING')) AS tunneling_count,
+			    countIf(has(anomaly_types, 'DGA_DOMAINS')) AS dga_count,
+			    countIf(has(anomaly_types, 'NXDOMAIN_FLOOD')) AS nxdomain_flood_count,
+			    countIf(has(anomaly_types, 'REBINDING_ATTACK_RISK')) AS rebinding_count
+			FROM "%s".dns_raw
+			WHERE is_anomaly = 1
+			GROUP BY hour, query_ip, client_country
+		`, db, db),
+	}
+	for _, q := range mvQueries {
+		q := strings.TrimSpace(q)
+		if err := w.conn.Exec(ctx, q); err != nil {
+			w.logger.Warn("clickhouse: create materialized view failed", "error", err)
 		}
 	}
 
@@ -321,7 +369,8 @@ func (w *Writer) flushBatch(events []domain.DNSRawEvent) error {
 			dnstap_identity, dnstap_version, dnstap_type, dnstap_operation,
 			socket_ip, socket_port,
 			policy_rule, policy_type, policy_match, policy_value,
-			http_protocol, peer_name, query_zone, extra, edns_options
+			http_protocol, peer_name, query_zone, extra, edns_options,
+			is_anomaly, anomaly_types, anomaly_score, entropy_score
 		)`, w.cfg.Database,
 	))
 	if err != nil {
@@ -394,6 +443,10 @@ func (w *Writer) flushBatch(events []domain.DNSRawEvent) error {
 			evt.DNSTap.QueryZone,
 			evt.DNSTap.Extra,
 			ednsOptionsJSON(evt.EDNS.Options),
+			boolToUint8(evt.Anomaly.Detected),
+			evt.Anomaly.Types,
+			float32(evt.Anomaly.Score),
+			float32(evt.Anomaly.EntropyScore),
 		); err != nil {
 			return fmt.Errorf("raw batch append: %w", err)
 		}

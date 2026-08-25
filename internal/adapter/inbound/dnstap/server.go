@@ -129,6 +129,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	for {
 		select {
 		case <-ctx.Done():
+			_ = conn.SetReadDeadline(time.Now())
 			return
 		default:
 		}

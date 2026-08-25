@@ -6,6 +6,14 @@ type DNSRawEvent struct {
 	EDNS    EDNSInfo    `json:"edns" yaml:"edns"`
 	DNSTap  DNSTapInfo  `json:"dnstap" yaml:"dnstap"`
 	GeoIP   GeoIPInfo   `json:"geoip,omitempty" yaml:"geoip,omitempty"`
+	Anomaly AnomalyInfo `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
+}
+
+type AnomalyInfo struct {
+	Detected     bool     `json:"detected" yaml:"detected"`
+	Types        []string `json:"types,omitempty" yaml:"types,omitempty"`
+	Score        float64  `json:"score" yaml:"score"`
+	EntropyScore float64  `json:"entropy_score,omitempty" yaml:"entropy_score,omitempty"`
 }
 
 type EDNSOption struct {
