@@ -148,6 +148,8 @@ type GeoIPConfig struct {
 
 type MonitoringConfig struct {
 	MetricsEnabled  bool   `yaml:"metrics_enabled"`
+	PrometheusPort  int    `yaml:"prometheus_port"`
+	MetricsPath     string `yaml:"metrics_path"`
 	TracingEnabled  bool   `yaml:"tracing_enabled"`
 	TracingEndpoint string `yaml:"tracing_endpoint"`
 	PprofEnabled    bool   `yaml:"pprof_enabled"`

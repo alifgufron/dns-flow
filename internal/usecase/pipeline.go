@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/alifgufron/dns-flow/internal/domain"
+	"github.com/alifgufron/dns-flow/internal/infrastructure/metrics"
 )
 
 type Pipeline struct {
@@ -54,6 +55,9 @@ func (p *Pipeline) Process(event domain.DNSRawEvent) error {
 	case p.queue <- event:
 	default:
 		p.logger.Warn("pipeline queue full, dropping event")
+		if m := metrics.GetExporter(); m != nil {
+			m.RecordDropped()
+		}
 	}
 	return nil
 }
@@ -162,6 +166,10 @@ func (p *Pipeline) processEvent(ctx context.Context, event domain.DNSRawEvent) {
 
 	if p.anomaly != nil {
 		p.anomaly.Detect(&event)
+	}
+
+	if m := metrics.GetExporter(); m != nil {
+		m.RecordEvent(&event)
 	}
 
 	for _, s := range p.storages {

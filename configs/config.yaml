@@ -100,3 +100,10 @@ pipeline:
 geoip:
   maxmind_db_path: "/data/geoip/GeoLite2-City.mmdb"
   asn_db_path: "/data/geoip/GeoLite2-ASN.mmdb"
+
+# --- Monitoring ---
+monitoring:
+  metrics_enabled: true
+  prometheus_port: 9153
+  metrics_path: "/metrics"
+

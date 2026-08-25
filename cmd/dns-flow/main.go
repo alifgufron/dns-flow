@@ -21,6 +21,7 @@ import (
 	"github.com/alifgufron/dns-flow/internal/domain"
 	"github.com/alifgufron/dns-flow/internal/infrastructure/config"
 	"github.com/alifgufron/dns-flow/internal/infrastructure/logger"
+	"github.com/alifgufron/dns-flow/internal/infrastructure/metrics"
 	"github.com/alifgufron/dns-flow/internal/relay"
 	"github.com/alifgufron/dns-flow/internal/usecase"
 )
@@ -136,6 +137,13 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 		Storages: storages,
 	}, log)
 
+	// --- Prometheus Metrics ---
+	var metricsExporter *metrics.MetricsExporter
+	if cfg.Monitoring.MetricsEnabled {
+		metricsExporter = metrics.InitMetrics(cfg.Monitoring.PrometheusPort, cfg.Monitoring.MetricsPath, log)
+		metricsExporter.Start()
+	}
+
 	// --- Start ---
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -175,6 +183,9 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 			handleReload(cfgPath, log)
 		default:
 			log.Info("shutting down", "signal", sig.String())
+			if metricsExporter != nil {
+				metricsExporter.Stop()
+			}
 			kafkaConsumer.Stop()
 			dnstapServer.Stop()
 			collectorPipeline.Shutdown()
