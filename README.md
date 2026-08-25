@@ -66,6 +66,7 @@ make build
 | [Kafka Setup](docs/kafka-setup.md) | Install & configure Kafka (FreeBSD + Linux), KRaft, topic management |
 | [DNSTAP Sources](docs/dnstap-sources.md) | Configure DNS servers (DNSDist, BIND, PowerDNS, Unbound) |
 | [Output Formats](docs/outputs.md) | ClickHouse schema + MV, InfluxDB measurement, File JSON, query examples |
+| [Grafana & Metrics](docs/grafana.md) | Import pre-built Grafana dashboards (ClickHouse & InfluxDB) + Prometheus setup |
 
 ## License
 

@@ -1,0 +1,144 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Total DNS Queries",
+      "type": "stat",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT count() FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Avg Query Latency (ms)",
+      "type": "stat",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT round(avg(latency_ms), 2) FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime AND qr = 1",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "title": "Total NXDOMAIN Responses",
+      "type": "stat",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT count() FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime AND rcode = 'NXDOMAIN'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "title": "Detected Anomalies",
+      "type": "stat",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT count() FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime AND is_anomaly = 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "title": "Top 10 Queried Domains",
+      "type": "barchart",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT qname, sum(queries) AS total FROM dns_flow.mv_top_domains_hourly WHERE hour >= toStartOfHour($__fromTime) AND hour <= toStartOfHour($__toTime) GROUP BY qname ORDER BY total DESC LIMIT 10",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "title": "DNS Record Types Breakdown (QType)",
+      "type": "piechart",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT qtype, count() AS total FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime GROUP BY qtype ORDER BY total DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "id": 7,
+      "title": "Real-Time DNS Anomalies Breakdown (Hourly MV)",
+      "type": "table",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT hour, query_ip, client_country, sum(total_anomalies) AS total, sum(tunneling_count) AS tunneling, sum(dga_count) AS dga, sum(nxdomain_flood_count) AS nxdomain_flood, sum(rebinding_count) AS rebinding FROM dns_flow.mv_dns_anomalies_hourly WHERE hour >= toStartOfHour($__fromTime) AND hour <= toStartOfHour($__toTime) GROUP BY hour, query_ip, client_country ORDER BY total DESC LIMIT 50",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["dns-flow", "clickhouse", "dns", "security"],
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "DNS-Flow — ClickHouse Analytics & Security",
+  "uid": "dns-flow-clickhouse"
+}
