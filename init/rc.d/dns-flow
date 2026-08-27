@@ -42,7 +42,7 @@ else
 	_output_args="-S -T ${name}"
 fi
 
-command_args="-c -f -p ${pidfile} -u ${dns_flow_user} ${_output_args} \
+command_args="-c -f -p ${pidfile} -u ${dns_flow_user} -H ${_output_args} \
 	${procname} -config ${dns_flow_config}"
 
 start_precmd="${name}_prestart"
