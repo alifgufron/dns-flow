@@ -28,15 +28,24 @@ import (
 
 func main() {
 	cfgPath := flag.String("config", "", "path to configuration file")
+	configTest := flag.Bool("configtest", false, "validate configuration file and exit")
 	flag.Parse()
 
 	cfgPath = resolveConfig(*cfgPath)
 	if cfgPath == nil {
 		fmt.Fprintf(os.Stderr, "Usage: dns-flow -config <config.yaml>\n\n")
-		fmt.Fprintf(os.Stderr, "Example:\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, "  -config <path>   Path to configuration file\n")
+		fmt.Fprintf(os.Stderr, "  -configtest      Validate config file and exit (no service started)\n\n")
+		fmt.Fprintf(os.Stderr, "Examples:\n")
 		fmt.Fprintf(os.Stderr, "  dns-flow -config /usr/local/etc/dns-flow.yaml\n")
-		fmt.Fprintf(os.Stderr, "  dns-flow -config ./config.yaml\n")
+		fmt.Fprintf(os.Stderr, "  dns-flow -config /usr/local/etc/dns-flow.yaml -configtest\n")
 		os.Exit(1)
+	}
+
+	if *configTest {
+		runConfigTest(*cfgPath)
+		return
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -63,6 +72,45 @@ func main() {
 	default:
 		runCollect(cfg, *cfgPath, log)
 	}
+}
+
+// runConfigTest validates the config file and prints a summary, then exits.
+// Exit code 0 = config is valid. Exit code 1 = config is invalid.
+func runConfigTest(cfgPath string) {
+	fmt.Printf("Validating config: %s\n", cfgPath)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[FAIL] YAML parse error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "[FAIL] Config validation error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Print config summary
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "collect"
+	}
+	fmt.Printf("[OK]   Config loaded successfully\n")
+	fmt.Printf("       mode       : %s\n", mode)
+	fmt.Printf("       server     : %s\n", cfg.Server.Name)
+	fmt.Printf("       log_level  : %s\n", cfg.Server.LogLevel)
+
+	switch mode {
+	case "relay":
+		fmt.Printf("       relay.input: %s (%s)\n", cfg.Relay.Input.Address, cfg.Relay.Input.Type)
+		fmt.Printf("       relay.output: %s (%s)\n", cfg.Relay.Output.Address, cfg.Relay.Output.Type)
+	default:
+		fmt.Printf("       dnstap     : %s (%s)\n", cfg.DNSTap.Listen, cfg.DNSTap.Type)
+		fmt.Printf("       kafka      : %v\n", cfg.Kafka.Brokers)
+		fmt.Printf("       outputs    : %s\n", outputSummary(cfg))
+	}
+
+	fmt.Printf("[OK]   Config test passed — configuration is valid\n")
 }
 
 func runRelay(cfg *config.Config, log *slog.Logger) {
