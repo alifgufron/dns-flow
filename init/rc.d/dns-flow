@@ -24,27 +24,26 @@ load_rc_config "$name"
 
 : ${dns_flow_enable:="NO"}
 : ${dns_flow_config:="/usr/local/etc/dns-flow.yaml"}
-: ${dns_flow_user:="dnsflow"}
-: ${dns_flow_group:="dnsflow"}
+: ${dns_flow_user:="root"}
+: ${dns_flow_group:="wheel"}
 : ${dns_flow_logfile:="/var/log/dns-flow/dns-flow.log"}
 : ${dns_flow_rundir:="/var/run/dns-flow"}
 : ${dns_flow_datadir:="/var/db/dns-flow"}
 
-pidfile="${dns_flow_rundir}/${name}.pid"
+pidfile="/var/run/${name}.pid"
 procname="/usr/local/sbin/dns-flow"
 command="/usr/sbin/daemon"
 
-# daemon(8) drops privileges and supervises the process. Output is sent to a
-# logfile when configured, otherwise to syslog, so log data is never lost.
+# daemon(8) supervises the process. Output is sent to a logfile when configured.
 if [ -n "${dns_flow_logfile}" ]; then
 	_output_args="-o ${dns_flow_logfile}"
 else
 	_output_args="-S -T ${name}"
 fi
 
-command_args="-c -f -p ${pidfile} -u ${dns_flow_user} -H ${_output_args} \
-	${procname} -config ${dns_flow_config}"
+command_args="-f -u ${dns_flow_user} -p ${pidfile} ${_output_args} ${procname} -config ${dns_flow_config}"
 
+required_files="${dns_flow_config}"
 start_precmd="${name}_prestart"
 reload_cmd="${name}_reload"
 status_cmd="${name}_status"
@@ -56,28 +55,11 @@ dns_flow_prestart() {
 		err 1 "Config file ${dns_flow_config} not found"
 	fi
 
-	if ! pw groupshow "${dns_flow_group}" >/dev/null 2>&1; then
-		echo "Group ${dns_flow_group} does not exist; create with:"
-		echo "  pw groupadd ${dns_flow_group}"
-		return 1
-	fi
-
-	if ! pw usershow "${dns_flow_user}" >/dev/null 2>&1; then
-		echo "User ${dns_flow_user} does not exist; create with:"
-		echo "  pw adduser ${dns_flow_user} -g ${dns_flow_group} -d /nonexistent -s /usr/sbin/nologin"
-		return 1
-	fi
-
-	# Runtime directory holds the DNSTAP unix socket created by dns-flow and pidfile.
-	# Mode 750 with the service group lets a DNS server in that group connect.
-	install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 "${dns_flow_rundir}"
-	install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 "${dns_flow_datadir}"
-	touch "${pidfile}" 2>/dev/null || true
-	chown "${dns_flow_user}:${dns_flow_group}" "${pidfile}" 2>/dev/null || true
+	install -d -m 750 "${dns_flow_rundir}"
+	install -d -m 750 "${dns_flow_datadir}"
 
 	if [ -n "${dns_flow_logfile}" ]; then
-		install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 \
-			"$(dirname "${dns_flow_logfile}")"
+		install -d -m 750 "$(dirname "${dns_flow_logfile}")"
 	fi
 }
 
