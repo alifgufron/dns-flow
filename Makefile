@@ -1,5 +1,5 @@
 .PHONY: all build build-linux build-freebsd build-all install install-service \
-        create-user uninstall test vet fmt clean help
+        create-user uninstall test vet fmt clean help check-deps
 
 # --- Toolchain ---
 GO       ?= go
@@ -7,6 +7,17 @@ GOFLAGS  ?=
 LDFLAGS  ?=
 
 BINDIR_OUT ?= bin
+
+check-deps:
+	@which $(GO) >/dev/null 2>&1 || ( \
+		echo ""; \
+		echo "ERROR: Go compiler ('$(GO)') is not installed or not in PATH."; \
+		echo "Please install Go 1.22+ first:"; \
+		echo "  - FreeBSD : pkg install lang/go"; \
+		echo "  - Linux   : https://go.dev/doc/install"; \
+		echo ""; \
+		exit 1 \
+	)
 
 # --- Build ---
 all: build
@@ -25,17 +36,17 @@ help:
 $(BINDIR_OUT):
 	mkdir -p $(BINDIR_OUT)
 
-build:
+build: check-deps
 	@mkdir -p $(BINDIR_OUT)
 	$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINDIR_OUT)/dns-flow ./cmd/dns-flow/
 	@echo "built $(BINDIR_OUT)/dns-flow"
 
-build-linux:
+build-linux: check-deps
 	@mkdir -p $(BINDIR_OUT)
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINDIR_OUT)/dns-flow-linux-amd64 ./cmd/dns-flow/
 	@echo "built $(BINDIR_OUT)/dns-flow-linux-amd64"
 
-build-freebsd:
+build-freebsd: check-deps
 	@mkdir -p $(BINDIR_OUT)
 	GOOS=freebsd GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINDIR_OUT)/dns-flow-freebsd-amd64 ./cmd/dns-flow/
 	@echo "built $(BINDIR_OUT)/dns-flow-freebsd-amd64"
