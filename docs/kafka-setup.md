@@ -1,26 +1,51 @@
 # Kafka Setup Guide
 
-## FreeBSD (pkg)
+## FreeBSD (pkg) — Kafka 4.x (KRaft-only)
+
+> **Kafka 4.x removes ZooKeeper completely.** KRaft mode is the only mode.
+> The FreeBSD pkg installs config files at `/usr/local/etc/kafka/` (no `kraft/` subdirectory).
+> The `kafka-storage.sh format` command requires `--standalone` for single-node setups.
 
 ```bash
-# Install
-pkg install kafka
+# Install Kafka (Java OpenJDK is a dependency, installed automatically)
+pkg install -y kafka
 
-# Enable at boot
+# Verify Java
+java -version
+
+# Enable at boot (use the default pkg config path — no kraft/ subdirectory)
 sysrc kafka_enable="YES"
-sysrc kafka_config="/usr/local/etc/kafka/kraft/server.properties"
+sysrc kafka_config="/usr/local/etc/kafka/server.properties"
 
-# Generate Cluster ID (KRaft)
+# ------------------------------------------------------------------
+# Copy sample config files provided by pkg
+# ------------------------------------------------------------------
+cp /usr/local/etc/kafka/server.properties.sample \
+   /usr/local/etc/kafka/server.properties
+
+cp /usr/local/etc/kafka/log4j2.yaml.sample \
+   /usr/local/etc/kafka/log4j2.yaml
+
+# Optional: edit server.properties if you need to change advertised.listeners
+# By default it binds to localhost:9092 which is fine for single-node
+# vi /usr/local/etc/kafka/server.properties
+
+# ------------------------------------------------------------------
+# Generate Cluster ID and format storage (KRaft single-node)
+# NOTE: Kafka 4.x requires --standalone flag for single-node format
+# ------------------------------------------------------------------
 KAFKA_HOME=/usr/local/share/java/kafka
-$KAFKA_HOME/bin/kafka-storage.sh random-uuid
-# output example: Z9-st5SYT1i6aFAOVpsWXQ
+UUID=$($KAFKA_HOME/bin/kafka-storage.sh random-uuid)
+echo "Cluster UUID: $UUID"
 
-# Format storage directory with the UUID
-$KAFKA_HOME/bin/kafka-storage.sh format \
-  -t <UUID> \
-  -c /usr/local/etc/kafka/kraft/server.properties
+su -m kafka -c "$KAFKA_HOME/bin/kafka-storage.sh format \
+  --standalone \
+  -t $UUID \
+  -c /usr/local/etc/kafka/server.properties"
 
+# ------------------------------------------------------------------
 # Start Kafka
+# ------------------------------------------------------------------
 service kafka start
 service kafka status
 ```
@@ -29,29 +54,56 @@ Default ports after start:
 - `9092` — Broker listener (producer/consumer)
 - `9093` — Controller listener (KRaft internal)
 
+Data directory (pkg default): `/var/db/kafka`
+
+## Verify Cluster
+
+```bash
+KAFKA_HOME=/usr/local/share/java/kafka
+
+# Check KRaft metadata quorum
+$KAFKA_HOME/bin/kafka-metadata-quorum.sh \
+  --bootstrap-controller localhost:9093 \
+  describe --status
+
+# Expected output:
+# ClusterId:    <UUID>
+# LeaderId:     1
+# LeaderEpoch:  1
+
+# List topics
+$KAFKA_HOME/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+# Create dns.raw topic manually (optional, auto-created by dns-flow)
+$KAFKA_HOME/bin/kafka-topics.sh --create \
+  --topic dns.raw \
+  --partitions 1 \
+  --replication-factor 1 \
+  --bootstrap-server localhost:9092
+```
+
 ## Linux (manual tar)
 
 ```bash
 # Download Kafka (adjust version URL as needed)
-KAFKA_VERSION=3.9.2
+KAFKA_VERSION=4.0.0
 wget https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz
 tar xzf kafka_2.13-${KAFKA_VERSION}.tgz
 sudo mv kafka_2.13-${KAFKA_VERSION} /opt/kafka
 
-# Copy configuration
-sudo mkdir -p /etc/kafka
-sudo cp /opt/kafka/config/kraft/server.properties /etc/kafka/
-
-# Create kafka user
+# Create kafka user and data directory
 sudo useradd -r -s /bin/false kafka
-sudo mkdir -p /var/lib/kafka
-sudo chown kafka:kafka /var/lib/kafka
+sudo mkdir -p /var/lib/kafka /etc/kafka /var/log/kafka
+sudo chown kafka:kafka /var/lib/kafka /var/log/kafka
 
-# Generate Cluster ID and format
+# Copy config
+sudo cp /opt/kafka/config/kraft/server.properties /etc/kafka/server.properties
+
+# Generate Cluster ID and format (single-node)
 KAFKA_HOME=/opt/kafka
-$KAFKA_HOME/bin/kafka-storage.sh random-uuid > /etc/kafka/cluster-id
-UUID=$(cat /etc/kafka/cluster-id)
-$KAFKA_HOME/bin/kafka-storage.sh format \
+UUID=$($KAFKA_HOME/bin/kafka-storage.sh random-uuid)
+sudo -u kafka $KAFKA_HOME/bin/kafka-storage.sh format \
+  --standalone \
   -t $UUID \
   -c /etc/kafka/server.properties
 
@@ -59,60 +111,37 @@ $KAFKA_HOME/bin/kafka-storage.sh format \
 $KAFKA_HOME/bin/kafka-server-start.sh -daemon /etc/kafka/server.properties
 ```
 
-## KRaft Configuration (`server.properties`)
+## KRaft `server.properties` — Key Settings
 
-Minimal single-node config:
+The FreeBSD pkg sample (`server.properties.sample`) is pre-configured for single-node KRaft.
+Key settings to verify:
 
 ```properties
-# Broker ID
+# Node identity
 node.id=1
 
-# Listeners
-listeners=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-advertised.listeners=PLAINTEXT://localhost:9092
-listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-
-# Controller quorum
+# KRaft roles (combined broker+controller on single node)
 process.roles=broker,controller
 controller.quorum.voters=1@localhost:9093
 controller.listener.names=CONTROLLER
 
-# Data directory (FreeBSD: /var/db/kafka-kraft, Linux: /var/lib/kafka)
-log.dirs=/var/db/kafka-kraft
+# Listeners
+listeners=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+advertised.listeners=PLAINTEXT://127.0.0.1:9092
+listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+inter.broker.listener.name=PLAINTEXT
 
-# Auto-create topics (dns-flow creates topic via admin API)
+# Data directory (FreeBSD pkg default)
+log.dirs=/var/db/kafka
+
+# Auto-create topics (dns-flow uses admin API to create dns.raw)
 auto.create.topics.enable=true
 
-# Default replication (1 for single node)
+# Single-node replication
 default.replication.factor=1
 offsets.topic.replication.factor=1
 transaction.state.log.replication.factor=1
 transaction.state.log.min.isr=1
-```
-
-## Cluster Verification
-
-```bash
-# Check metadata quorum
-$KAFKA_HOME/bin/kafka-metadata-quorum.sh \
-  --bootstrap-controller localhost:9093 \
-  describe --status
-
-# Output:
-# ClusterId:              <UUID>
-# LeaderId:               1
-# LeaderEpoch:            1
-# HighWatermark:          <number>
-
-# List topics
-$KAFKA_HOME/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
-
-# Create topic manually (override 1 partition default)
-$KAFKA_HOME/bin/kafka-topics.sh --create \
-  --topic dns.raw \
-  --partitions 6 \
-  --replication-factor 1 \
-  --bootstrap-server localhost:9092
 ```
 
 ## Systemd Service (Linux)
@@ -144,13 +173,12 @@ sudo systemctl start kafka
 
 ## rc.d Service (FreeBSD)
 
-The `/usr/local/etc/rc.d/kafka` file is installed automatically with the `pkg`. Configure in `/etc/rc.conf`:
+The `/usr/local/etc/rc.d/kafka` script is installed automatically with `pkg install kafka`.
+Configure in `/etc/rc.conf`:
 
 ```
 kafka_enable="YES"
-kafka_config="/usr/local/etc/kafka/kraft/server.properties"
-kafka_data="/var/db/kafka-kraft"
-kafka_logs="/var/log/kafka"
+kafka_config="/usr/local/etc/kafka/server.properties"
 ```
 
 ## Topic & Partition
@@ -164,11 +192,13 @@ At startup, if topic `dns.raw` does not exist, dns-flow creates it automatically
 For production, create the topic **before** running dns-flow with the desired partition count:
 
 ```bash
-# 6 partitions, replication-factor 3 (for 3 brokers)
-kafka-topics.sh --create \
+KAFKA_HOME=/usr/local/share/java/kafka
+
+# 6 partitions, replication-factor 1 (single node)
+$KAFKA_HOME/bin/kafka-topics.sh --create \
   --topic dns.raw \
   --partitions 6 \
-  --replication-factor 3 \
+  --replication-factor 1 \
   --bootstrap-server localhost:9092
 ```
 
@@ -190,12 +220,14 @@ kafka-topics.sh --create \
 ### Verify topic
 
 ```bash
-kafka-topics.sh --describe --topic dns.raw --bootstrap-server localhost:9092
+KAFKA_HOME=/usr/local/share/java/kafka
+$KAFKA_HOME/bin/kafka-topics.sh --describe --topic dns.raw --bootstrap-server localhost:9092
 ```
 
 ### Replay from beginning
 
 ```bash
-kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+KAFKA_HOME=/usr/local/share/java/kafka
+$KAFKA_HOME/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
   --group dns-flow --topic dns.raw --reset-offsets --to-earliest --execute
 ```

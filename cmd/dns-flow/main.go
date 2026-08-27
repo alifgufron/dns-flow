@@ -28,18 +28,22 @@ import (
 
 func main() {
 	cfgPath := flag.String("config", "", "path to configuration file")
-	configTest := flag.Bool("configtest", false, "validate configuration file and exit")
+	configTest := flag.Bool("config-test", false, "validate configuration file and exit")
+
+	// Override default flag.Usage to show a friendly help message.
+	flag.Usage = printUsage
 	flag.Parse()
+
+	// Show usage if no arguments are given at all.
+	if flag.NFlag() == 0 && flag.NArg() == 0 {
+		printUsage()
+		os.Exit(1)
+	}
 
 	cfgPath = resolveConfig(*cfgPath)
 	if cfgPath == nil {
-		fmt.Fprintf(os.Stderr, "Usage: dns-flow -config <config.yaml>\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
-		fmt.Fprintf(os.Stderr, "  -config <path>   Path to configuration file\n")
-		fmt.Fprintf(os.Stderr, "  -configtest      Validate config file and exit (no service started)\n\n")
-		fmt.Fprintf(os.Stderr, "Examples:\n")
-		fmt.Fprintf(os.Stderr, "  dns-flow -config /usr/local/etc/dns-flow.yaml\n")
-		fmt.Fprintf(os.Stderr, "  dns-flow -config /usr/local/etc/dns-flow.yaml -configtest\n")
+		fmt.Fprintf(os.Stderr, "error: -config path is required\n\n")
+		printUsage()
 		os.Exit(1)
 	}
 
@@ -72,6 +76,21 @@ func main() {
 	default:
 		runCollect(cfg, *cfgPath, log)
 	}
+}
+
+// printUsage prints the help/usage message to stderr.
+func printUsage() {
+	fmt.Fprintf(os.Stderr, "dns-flow — DNS telemetry pipeline (DNSTAP → Kafka → Storage)\n\n")
+	fmt.Fprintf(os.Stderr, "Usage:\n")
+	fmt.Fprintf(os.Stderr, "  dns-flow -config <config.yaml> [flags]\n\n")
+	fmt.Fprintf(os.Stderr, "Flags:\n")
+	fmt.Fprintf(os.Stderr, "  -config <path>    Path to configuration file (required)\n")
+	fmt.Fprintf(os.Stderr, "  -config-test      Validate config file and exit without starting service\n\n")
+	fmt.Fprintf(os.Stderr, "Examples:\n")
+	fmt.Fprintf(os.Stderr, "  dns-flow -config /usr/local/etc/dns-flow.yaml\n")
+	fmt.Fprintf(os.Stderr, "  dns-flow -config /usr/local/etc/dns-flow.yaml -config-test\n\n")
+	fmt.Fprintf(os.Stderr, "Config is auto-discovered from: ./config.yaml, ./configs/config.yaml,\n")
+	fmt.Fprintf(os.Stderr, "  /usr/local/etc/dns-flow.yaml, /etc/dns-flow.yaml\n")
 }
 
 // runConfigTest validates the config file and prints a summary, then exits.
