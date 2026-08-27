@@ -30,7 +30,7 @@ load_rc_config "$name"
 : ${dns_flow_rundir:="/var/run/dns-flow"}
 : ${dns_flow_datadir:="/var/db/dns-flow"}
 
-pidfile="/var/run/${name}.pid"
+pidfile="${dns_flow_rundir}/${name}.pid"
 procname="/usr/local/sbin/dns-flow"
 command="/usr/sbin/daemon"
 
@@ -68,10 +68,12 @@ dns_flow_prestart() {
 		return 1
 	fi
 
-	# Runtime directory holds the DNSTAP unix socket created by dns-flow.
+	# Runtime directory holds the DNSTAP unix socket created by dns-flow and pidfile.
 	# Mode 750 with the service group lets a DNS server in that group connect.
 	install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 "${dns_flow_rundir}"
 	install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 "${dns_flow_datadir}"
+	touch "${pidfile}" 2>/dev/null || true
+	chown "${dns_flow_user}:${dns_flow_group}" "${pidfile}" 2>/dev/null || true
 
 	if [ -n "${dns_flow_logfile}" ]; then
 		install -d -o "${dns_flow_user}" -g "${dns_flow_group}" -m 750 \
