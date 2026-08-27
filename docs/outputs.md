@@ -249,14 +249,61 @@ WHERE is_anomaly = 1
 GROUP BY hour, query_ip, client_country;
 ```
 
-Query from MVs directly:
+### Auto-Created Materialized Views & Analytical Queries
 
+dns-flow automatically creates 5 Materialized Views in ClickHouse for high-speed reporting:
+
+1. `mv_top_domains_hourly` — Top queried domains (QPS & volumes)
+2. `mv_top_clients_hourly` — Top querying client IPs (query count, anomalies, threat flags)
+3. `mv_dns_abuse_hourly` — DNS Abuse & Threat indicators per client IP (high query rate, tunneling, NXDOMAIN flood)
+4. `mv_dns_anomalies_hourly` — Detailed anomaly breakdown by client IP and country
+5. `mv_qtype_distribution_hourly` — Query type distribution (A, AAAA, TXT, ANY, PTR)
+
+#### 📊 Top 50 Most Queried Domains (24h)
 ```sql
-SELECT qname, queries, anomalies
+SELECT qname, sum(queries) AS total_queries, sum(anomalies) AS total_anomalies
 FROM dns_flow.mv_top_domains_hourly
 WHERE hour >= now() - INTERVAL 24 HOUR
-ORDER BY queries DESC
-LIMIT 10;
+GROUP BY qname
+ORDER BY total_queries DESC
+LIMIT 50;
+```
+
+#### 🖥️ Top 50 Client IPs by Query Volume (24h)
+```sql
+SELECT query_ip, client_country, client_city, client_asn,
+       sum(queries) AS total_queries,
+       sum(anomalies) AS total_anomalies,
+       sum(threats) AS total_threats
+FROM dns_flow.mv_top_clients_hourly
+WHERE hour >= now() - INTERVAL 24 HOUR
+GROUP BY query_ip, client_country, client_city, client_asn
+ORDER BY total_queries DESC
+LIMIT 50;
+```
+
+#### 🚨 DNS Abuse & Threat Indication Summary (24h)
+```sql
+SELECT query_ip, threat_category,
+       sum(threat_count) AS total_threats,
+       sum(anomaly_count) AS total_anomalies,
+       sum(tunneling_count) AS tunneling_events,
+       sum(flood_count) AS high_rate_floods,
+       sum(nxdomain_count) AS nxdomain_floods
+FROM dns_flow.mv_dns_abuse_hourly
+WHERE hour >= now() - INTERVAL 24 HOUR
+GROUP BY query_ip, threat_category
+ORDER BY total_threats DESC, total_anomalies DESC
+LIMIT 50;
+```
+
+#### 📈 Query Type Distribution (A, AAAA, TXT, ANY, PTR)
+```sql
+SELECT qtype, sum(count) AS total_queries
+FROM dns_flow.mv_qtype_distribution_hourly
+WHERE hour >= now() - INTERVAL 24 HOUR
+GROUP BY qtype
+ORDER BY total_queries DESC;
 ```
 
 ## InfluxDB v1 / v2
@@ -265,13 +312,25 @@ LIMIT 10;
 
 ```
 Measurement: dns_query
-Tags:   identity, operation, client_country, client_city, client_asn
+Tags:   identity, operation, client_country, client_city, client_asn, is_anomaly, is_malicious, threat_category
 Fields: qname, qtype, rcode, query_ip, response_ip,
         family, protocol, latency, latency_ms,
         opcode, length, dns_id,
         qr, tc, aa, rd, ra, ad, cd,
         qdcount, ancount, nscount, arcount,
         edns_version, edns_udp_size, edns_rcode, edns_dnssec_ok
+```
+
+#### InfluxDB Flux Example (Top 50 Domains in last 24h):
+```flux
+from(bucket: "dns_flow")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._measurement == "dns_query" and r._field == "qname")
+  |> group(columns: ["_value"])
+  |> count()
+  |> group()
+  |> sort(columns: ["_value"], desc: true)
+  |> limit(n: 50)
 ```
 
 Boolean fields use `t`/`f`.

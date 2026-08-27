@@ -11,7 +11,7 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "id": 1,
       "title": "DNS Queries Rate (QPS)",
       "type": "stat",
@@ -26,7 +26,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "id": 2,
       "title": "Average Response Latency (ms)",
       "type": "stat",
@@ -41,7 +41,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
       "id": 3,
       "title": "Total Anomaly Spikes",
       "type": "stat",
@@ -61,6 +61,33 @@
             "steps": [
               { "color": "green", "value": null },
               { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 6,
+      "title": "Threat Intelligence Flagged",
+      "type": "stat",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"is_malicious\") FROM \"dns_query\" WHERE \"is_malicious\" = 't' AND $timeFilter",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "dark-red", "value": 1 }
             ]
           }
         }

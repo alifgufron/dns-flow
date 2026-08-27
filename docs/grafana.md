@@ -6,8 +6,8 @@
 
 | File | Datasource | Key Features |
 |---|---|---|
-| [`dashboards/grafana-clickhouse.json`](../dashboards/grafana-clickhouse.json) | ClickHouse | Real-time QPS, Latency p95, Top 10 Domains, QType Breakdown, Anomaly Summary Table |
-| [`dashboards/grafana-influxdb.json`](../dashboards/grafana-influxdb.json) | InfluxDB (v1/v2) | Time-series QPS, Average Latency, Anomaly Spikes by Type |
+| [`dashboards/grafana-clickhouse.json`](../dashboards/grafana-clickhouse.json) | ClickHouse | Real-time QPS, Latency, Top 10 Domains (Hourly MV), Top 10 Clients (Hourly MV), DNS Abuse & Threat Summary (Abuse MV), QType Breakdown, Anomaly Summary Table |
+| [`dashboards/grafana-influxdb.json`](../dashboards/grafana-influxdb.json) | InfluxDB (v1/v2) | Time-series QPS, Average Latency, Threat Intelligence Flags, Anomaly Spikes by Type |
 
 ## Importing Dashboards to Grafana
 

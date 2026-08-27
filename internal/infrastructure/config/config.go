@@ -58,10 +58,18 @@ type TLSConfig struct {
 }
 
 type KafkaConfig struct {
+	Enabled  *bool         `yaml:"enabled"`
 	Brokers  []string      `yaml:"brokers"`
 	Topic    KafkaTopic    `yaml:"topic"`
 	Producer KafkaProducer `yaml:"producer"`
 	Consumer KafkaConsumer `yaml:"consumer"`
+}
+
+func (k KafkaConfig) IsEnabled() bool {
+	if k.Enabled == nil {
+		return true // Enabled by default
+	}
+	return *k.Enabled
 }
 
 type KafkaTopic struct {
@@ -225,11 +233,13 @@ func (c *Config) validateCollect() error {
 	default:
 		return fmt.Errorf("config: dnstap.type must be tcp or unix")
 	}
-	if len(c.Kafka.Brokers) == 0 {
-		return fmt.Errorf("config: kafka.brokers is required")
-	}
-	if c.Kafka.Topic.Raw == "" {
-		return fmt.Errorf("config: kafka.topic.raw is required")
+	if c.Kafka.IsEnabled() {
+		if len(c.Kafka.Brokers) == 0 {
+			return fmt.Errorf("config: kafka.brokers is required when kafka is enabled")
+		}
+		if c.Kafka.Topic.Raw == "" {
+			return fmt.Errorf("config: kafka.topic.raw is required when kafka is enabled")
+		}
 	}
 	if c.Outputs.ClickHouse == nil && c.Outputs.InfluxDB == nil && c.Outputs.InfluxDBV2 == nil && c.Outputs.File == nil {
 		return fmt.Errorf("config: at least one output (clickhouse/influxdb/influxdb_v2/file) required")

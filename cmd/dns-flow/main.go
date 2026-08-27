@@ -180,40 +180,51 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 		)
 	}
 
-	// --- Kafka producer (collector side) ---
-	kafkaProducer := kafkaout.NewProducer(kafkaout.Config{
-		Brokers:       cfg.Kafka.Brokers,
-		Topic:         cfg.Kafka.Topic.Raw,
-		BatchSize:     cfg.Kafka.Producer.BatchSize,
-		FlushInterval: cfg.Kafka.Producer.FlushInterval,
-		Compression:   cfg.Kafka.Producer.Compression,
-		RetentionMS:   cfg.Kafka.Topic.RetentionMS,
-	}, log)
+	// --- Storage (outputs) ---
+	storages := initStorages(cfg, log)
 
-	if err := kafkaProducer.Migrate(); err != nil {
-		logger.Fatal(log, "kafka connection failed", "error", err)
+	var pipelineOutputs []domain.Storage
+	var kafkaConsumer *kafkain.Consumer
+
+	if cfg.Kafka.IsEnabled() {
+		log.Info("kafka buffering enabled", "brokers", cfg.Kafka.Brokers, "topic", cfg.Kafka.Topic.Raw)
+		// --- Kafka producer (collector side) ---
+		kafkaProducer := kafkaout.NewProducer(kafkaout.Config{
+			Brokers:       cfg.Kafka.Brokers,
+			Topic:         cfg.Kafka.Topic.Raw,
+			BatchSize:     cfg.Kafka.Producer.BatchSize,
+			FlushInterval: cfg.Kafka.Producer.FlushInterval,
+			Compression:   cfg.Kafka.Producer.Compression,
+			RetentionMS:   cfg.Kafka.Topic.RetentionMS,
+		}, log)
+
+		if err := kafkaProducer.Migrate(); err != nil {
+			logger.Fatal(log, "kafka connection failed", "error", err)
+		}
+
+		pipelineOutputs = []domain.Storage{kafkaProducer}
+
+		// --- Kafka consumer (reads Kafka → storage) ---
+		kafkaConsumer = kafkain.NewConsumer(kafkain.Config{
+			Brokers:  cfg.Kafka.Brokers,
+			Topic:    cfg.Kafka.Topic.Raw,
+			GroupID:  cfg.Kafka.Consumer.GroupID,
+			Storages: storages,
+		}, log)
+	} else {
+		log.Info("direct storage mode active (Kafka bypassed)")
+		pipelineOutputs = storages
 	}
 
-	// --- Collector pipeline (DNSTAP → Kafka) ---
+	// --- Collector pipeline ---
 	collectorPipeline := usecase.NewPipeline(
-		[]domain.Storage{kafkaProducer},
+		pipelineOutputs,
 		geoipResolver,
 		threatEngine,
 		cfg.Pipeline.WorkerCount,
 		cfg.Pipeline.QueueSize,
 		log,
 	)
-
-	// --- Storage (consumer side) ---
-	storages := initStorages(cfg, log)
-
-	// --- Kafka consumer (reads Kafka → storage) ---
-	kafkaConsumer := kafkain.NewConsumer(kafkain.Config{
-		Brokers:  cfg.Kafka.Brokers,
-		Topic:    cfg.Kafka.Topic.Raw,
-		GroupID:  cfg.Kafka.Consumer.GroupID,
-		Storages: storages,
-	}, log)
 
 	// --- Prometheus Metrics ---
 	var metricsExporter *metrics.MetricsExporter
@@ -234,20 +245,30 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 		Type:       cfg.DNSTap.Type,
 		Listen:     cfg.DNSTap.Listen,
 		UnixSocket: cfg.DNSTap.UnixSocket,
+		TLSEnabled: cfg.DNSTap.TLS.Enabled,
+		CertFile:   cfg.DNSTap.TLS.CertFile,
+		KeyFile:    cfg.DNSTap.TLS.KeyFile,
 	}, collectorPipeline, log)
 	if err := dnstapServer.Start(); err != nil {
 		logger.Fatal(log, "failed to start dnstap server", "error", err)
 	}
 
-	go kafkaConsumer.Start(ctx)
+	if kafkaConsumer != nil {
+		go kafkaConsumer.Start(ctx)
+	}
 
 	dnstapDesc := cfg.DNSTap.Listen
 	if cfg.DNSTap.Type == "unix" {
 		dnstapDesc = cfg.DNSTap.UnixSocket
 	}
+	kafkaDesc := "disabled (direct storage mode)"
+	if cfg.Kafka.IsEnabled() {
+		kafkaDesc = fmt.Sprintf("%v", cfg.Kafka.Brokers)
+	}
 	log.Info("dns-flow started",
 		"dnstap", dnstapDesc,
-		"kafka", cfg.Kafka.Brokers,
+		"tls_enabled", cfg.DNSTap.TLS.Enabled,
+		"kafka", kafkaDesc,
 	)
 
 	// --- Signals ---
@@ -264,7 +285,9 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 			if metricsExporter != nil {
 				metricsExporter.Stop()
 			}
-			kafkaConsumer.Stop()
+			if kafkaConsumer != nil {
+				kafkaConsumer.Stop()
+			}
 			dnstapServer.Stop()
 			collectorPipeline.Shutdown()
 			log.Info("shutdown complete")

@@ -2,6 +2,7 @@ package dnstap
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -25,6 +26,9 @@ type Config struct {
 	Type       string
 	Listen     string
 	UnixSocket string
+	TLSEnabled bool
+	CertFile   string
+	KeyFile    string
 }
 
 type Server struct {
@@ -56,9 +60,29 @@ func (s *Server) Start() error {
 	}
 
 	var err error
-	s.ln, err = net.Listen(network, addr)
-	if err != nil {
-		return err
+	if s.cfg.TLSEnabled && network == "tcp" {
+		if s.cfg.CertFile == "" || s.cfg.KeyFile == "" {
+			return fmt.Errorf("dnstap: cert_file and key_file are required when TLS is enabled")
+		}
+		cert, err := tls.LoadX509KeyPair(s.cfg.CertFile, s.cfg.KeyFile)
+		if err != nil {
+			return fmt.Errorf("dnstap: failed to load TLS key pair: %w", err)
+		}
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		s.ln, err = tls.Listen("tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("dnstap: TLS listen failed on %s: %w", addr, err)
+		}
+		s.logger.Info("dnstap server listening with TLS (DoT)", "address", addr)
+	} else {
+		s.ln, err = net.Listen(network, addr)
+		if err != nil {
+			return err
+		}
+		s.logger.Info("dnstap server listening", "address", addr, "type", network)
 	}
 
 	if s.cfg.Type == "unix" {
@@ -70,8 +94,6 @@ func (s *Server) Start() error {
 			return fmt.Errorf("chmod dnstap socket %s: %w", addr, err)
 		}
 	}
-
-	s.logger.Info("dnstap server listening", "address", addr, "type", network)
 
 	go s.acceptLoop(ctx)
 	return nil

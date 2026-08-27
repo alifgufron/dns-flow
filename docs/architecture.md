@@ -9,26 +9,26 @@ dns-flow runs in one of two modes, selected by the `mode` key in the config.
 ```
 DNS Client → DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
                            │
-                           │  DNSTAP framestream [RFC 8618]
-                           │  server dials in ─── TCP :6000 or Unix socket
+                           │  DNSTAP framestream [RFC 8618] (Plain TCP / TLS DoT / Unix socket)
+                           │  server dials in ─── TCP/TLS :6000 or Unix socket
                            ▼
                   dns-flow collect  (listener)
                            │  decode (26 RR types, EDNS, policy metadata)
-                           │  enrich (MaxMind GeoIP: client IP + A/AAAA RDATA)
+                           │  enrich (MaxMind GeoIP LRU cache + Threat Intelligence blocklist)
                            │  correlate (CLIENT_QUERY ↔ CLIENT_RESPONSE, latency)
                            ▼
-                  Kafka (mandatory buffer)
-                   topic: dns.raw
+              Kafka (optional buffer, topic: dns.raw)
+              * If kafka.enabled: false -> Direct Storage Mode (bypasses Kafka)
+                           │
                            ▼
-                 dns-flow consumer
-                    ├── ClickHouse (dns_raw + dns_answers)
+                 Storage Outputs
+                    ├── ClickHouse (dns_raw + dns_answers + 5 MVs)
                     ├── InfluxDB v1 (dns_query)
                     ├── InfluxDB v2 (dns_query)
-                    └── File (JSON Lines)
+                    └── File (JSON Lines with sync.Pool buffer pool)
 ```
 
-Both the collector and the consumer run inside the same process; Kafka decouples
-them so storage outages never block DNSTAP ingestion.
+Both the collector and the storage pipeline run inside the same process. Kafka is an optional decoupling buffer (`kafka.enabled: true` by default); enabling it ensures zero data loss during storage outages, while disabling it activates Direct Storage Mode for lower CPU/memory footprint on small instances.
 
 ### `mode: relay` — stateless passthrough
 

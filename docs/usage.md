@@ -163,11 +163,15 @@ server:
 mode: collect                  # collect (default) | relay
 
 dnstap:
-  type: tcp                    # tcp (default) | unix
-  listen: "0.0.0.0:6000"       # Bind address for TCP FSTRM (source dials here)
-  # unix_socket: "/path/to/dnstap.sock"   # Used when type: unix (dns-flow listens)
+  type: tcp                  # tcp (default) | unix
+  listen: "0.0.0.0:6000"     # Bind address for TCP FSTRM (source dials here)
+  tls:
+    enabled: false           # Enable DoT (DNSTAP over TLS)
+    cert_file: "/etc/dns-flow/certs/server.crt"
+    key_file: "/etc/dns-flow/certs/server.key"
 
 kafka:
+  enabled: true              # Set to false for Direct Storage Mode (bypasses Kafka)
   brokers:
     - "localhost:9092"
   topic:

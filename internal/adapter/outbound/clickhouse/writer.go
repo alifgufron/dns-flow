@@ -294,6 +294,47 @@ func (w *Writer) Migrate() error {
 			WHERE is_anomaly = 1
 			GROUP BY hour, query_ip, client_country
 		`, db, db),
+		fmt.Sprintf(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS "%s".mv_top_clients_hourly
+			ENGINE = SummingMergeTree ORDER BY (hour, query_ip)
+			AS SELECT
+			    toStartOfHour(timestamp) AS hour,
+			    query_ip,
+			    client_country,
+			    client_city,
+			    client_asn,
+			    count() AS queries,
+			    countIf(is_anomaly = 1) AS anomalies,
+			    countIf(is_malicious = 1) AS threats
+			FROM "%s".dns_raw
+			GROUP BY hour, query_ip, client_country, client_city, client_asn
+		`, db, db),
+		fmt.Sprintf(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS "%s".mv_dns_abuse_hourly
+			ENGINE = SummingMergeTree ORDER BY (hour, query_ip, threat_category)
+			AS SELECT
+			    toStartOfHour(timestamp) AS hour,
+			    query_ip,
+			    threat_category,
+			    countIf(is_malicious = 1) AS threat_count,
+			    countIf(is_anomaly = 1) AS anomaly_count,
+			    countIf(has(anomaly_types, 'DNS_TUNNELING')) AS tunneling_count,
+			    countIf(has(anomaly_types, 'HIGH_QUERY_RATE_FLOOD')) AS flood_count,
+			    countIf(has(anomaly_types, 'NXDOMAIN_FLOOD')) AS nxdomain_count
+			FROM "%s".dns_raw
+			WHERE is_malicious = 1 OR is_anomaly = 1
+			GROUP BY hour, query_ip, threat_category
+		`, db, db),
+		fmt.Sprintf(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS "%s".mv_qtype_distribution_hourly
+			ENGINE = SummingMergeTree ORDER BY (hour, qtype)
+			AS SELECT
+			    toStartOfHour(timestamp) AS hour,
+			    qtype,
+			    count() AS count
+			FROM "%s".dns_raw
+			GROUP BY hour, qtype
+		`, db, db),
 	}
 	for _, q := range mvQueries {
 		q := strings.TrimSpace(q)

@@ -17,6 +17,10 @@ dnstap:
   listen: "0.0.0.0:6000"     # Bind address for TCP FSTRM (source dials here)
   # unix_socket: "/run/dns-flow/dnstap.sock"  # Used when type: unix (dns-flow creates & listens)
   #                                           # FreeBSD: /var/run/dns-flow/dnstap.sock
+  tls:
+    enabled: false           # Enable DoT (DNSTAP over TLS)
+    cert_file: "/etc/dns-flow/certs/server.crt"
+    key_file: "/etc/dns-flow/certs/server.key"
 
 # --- Relay (used when mode: relay) ---
 # unix input is listened on (source dials in, like fstrm_capture);
@@ -31,10 +35,10 @@ dnstap:
 #   queue_size: 100000       # Max in-memory frames (drops when full)
 #   reconnect_interval: 5s   # Retry interval when input/output is unreachable
 
-# --- Kafka (Required Buffer) ---
-# Kafka auto-creates topics by default (auto.create.topics.enable=true).
-# In production, create the "dns.raw" topic manually with appropriate partitions & RF.
+# --- Kafka (Optional Buffer) ---
+# Set enabled: false for Direct Storage Mode (Kafka bypassed, lower memory/CPU footprint)
 kafka:
+  enabled: true
   brokers:
     - "localhost:9092"
   topic:

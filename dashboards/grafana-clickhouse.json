@@ -11,7 +11,7 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
       "id": 1,
       "title": "Total DNS Queries",
       "type": "stat",
@@ -32,7 +32,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
       "id": 2,
       "title": "Avg Query Latency (ms)",
       "type": "stat",
@@ -51,7 +51,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
       "id": 3,
       "title": "Total NXDOMAIN Responses",
       "type": "stat",
@@ -66,7 +66,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 15, "y": 0 },
       "id": 4,
       "title": "Detected Anomalies",
       "type": "stat",
@@ -92,9 +92,36 @@
       }
     },
     {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 0 },
+      "id": 8,
+      "title": "Threat Intelligence Flags",
+      "type": "stat",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT count() FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime AND is_malicious = 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "dark-red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "id": 5,
-      "title": "Top 10 Queried Domains",
+      "title": "Top 10 Queried Domains (Hourly MV)",
       "type": "barchart",
       "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
       "targets": [
@@ -107,22 +134,50 @@
     },
     {
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "id": 6,
-      "title": "DNS Record Types Breakdown (QType)",
-      "type": "piechart",
+      "id": 9,
+      "title": "Top 10 Querying Clients (Hourly MV)",
+      "type": "barchart",
       "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
       "targets": [
         {
           "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
-          "query": "SELECT qtype, count() AS total FROM dns_flow.dns_raw WHERE timestamp >= $__fromTime AND timestamp <= $__toTime GROUP BY qtype ORDER BY total DESC",
+          "query": "SELECT query_ip, sum(queries) AS total FROM dns_flow.mv_top_clients_hourly WHERE hour >= toStartOfHour($__fromTime) AND hour <= toStartOfHour($__toTime) GROUP BY query_ip ORDER BY total DESC LIMIT 10",
           "refId": "A"
         }
       ]
     },
     {
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 6,
+      "title": "DNS Record Types Breakdown (QType Distribution MV)",
+      "type": "piechart",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT qtype, sum(count) AS total FROM dns_flow.mv_qtype_distribution_hourly WHERE hour >= toStartOfHour($__fromTime) AND hour <= toStartOfHour($__toTime) GROUP BY qtype ORDER BY total DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 10,
+      "title": "DNS Abuse & Threat Indicators (Abuse MV)",
+      "type": "table",
+      "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
+          "query": "SELECT query_ip, threat_category, sum(threat_count) AS threats, sum(anomaly_count) AS anomalies, sum(tunneling_count) AS tunneling, sum(flood_count) AS query_floods FROM dns_flow.mv_dns_abuse_hourly WHERE hour >= toStartOfHour($__fromTime) AND hour <= toStartOfHour($__toTime) GROUP BY query_ip, threat_category ORDER BY threats DESC, anomalies DESC LIMIT 20",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "id": 7,
-      "title": "Real-Time DNS Anomalies Breakdown (Hourly MV)",
+      "title": "Real-Time DNS Anomalies Breakdown (Anomalies MV)",
       "type": "table",
       "datasource": { "type": "clickhouse", "uid": "${DS_CLICKHOUSE}" },
       "targets": [
