@@ -14,6 +14,7 @@ import (
 type Pipeline struct {
 	storages   []domain.Storage
 	geoip      domain.GeoIPResolver
+	threat     *ThreatIntelEngine
 	correlator *QueryCorrelator
 	anomaly    *AnomalyDetector
 	workers    int
@@ -29,6 +30,7 @@ type Pipeline struct {
 func NewPipeline(
 	storages []domain.Storage,
 	geoip domain.GeoIPResolver,
+	threat *ThreatIntelEngine,
 	workers int,
 	queueSize int,
 	logger *slog.Logger,
@@ -36,6 +38,7 @@ func NewPipeline(
 	p := &Pipeline{
 		storages:  storages,
 		geoip:     geoip,
+		threat:    threat,
 		workers:   workers,
 		queueSize: queueSize,
 		queue:     make(chan domain.DNSRawEvent, queueSize),
@@ -162,6 +165,10 @@ func (p *Pipeline) processEvent(ctx context.Context, event domain.DNSRawEvent) {
 				}
 			}
 		}
+	}
+
+	if p.threat != nil {
+		p.threat.Check(&event)
 	}
 
 	if p.anomaly != nil {

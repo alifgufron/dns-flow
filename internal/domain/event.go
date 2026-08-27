@@ -6,6 +6,7 @@ type DNSRawEvent struct {
 	EDNS    EDNSInfo    `json:"edns" yaml:"edns"`
 	DNSTap  DNSTapInfo  `json:"dnstap" yaml:"dnstap"`
 	GeoIP   GeoIPInfo   `json:"geoip,omitempty" yaml:"geoip,omitempty"`
+	Threat  ThreatInfo  `json:"threat,omitempty" yaml:"threat,omitempty"`
 	Anomaly AnomalyInfo `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
 }
 

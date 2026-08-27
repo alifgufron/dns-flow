@@ -39,7 +39,7 @@ See [architecture.md](architecture.md) for the detailed data flow.
 `make build` detects the host OS and architecture and produces `bin/dns-flow-<os>-<arch>`:
 
 ```bash
-git clone <repo-url> dns-flow
+git clone https://github.com/alifgufron/dns-flow.git
 cd dns-flow
 make build
 ```

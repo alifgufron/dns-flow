@@ -170,6 +170,16 @@ func runRelay(cfg *config.Config, log *slog.Logger) {
 func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 	geoipResolver := initGeoIP(cfg, log)
 
+	var threatEngine *usecase.ThreatIntelEngine
+	if cfg.ThreatIntel.Enabled {
+		threatEngine = usecase.NewThreatIntelEngine(
+			cfg.ThreatIntel.BlocklistPaths,
+			cfg.ThreatIntel.CustomDomains,
+			cfg.ThreatIntel.CustomIPs,
+			log,
+		)
+	}
+
 	// --- Kafka producer (collector side) ---
 	kafkaProducer := kafkaout.NewProducer(kafkaout.Config{
 		Brokers:       cfg.Kafka.Brokers,
@@ -188,6 +198,7 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 	collectorPipeline := usecase.NewPipeline(
 		[]domain.Storage{kafkaProducer},
 		geoipResolver,
+		threatEngine,
 		cfg.Pipeline.WorkerCount,
 		cfg.Pipeline.QueueSize,
 		log,
@@ -288,6 +299,7 @@ func initGeoIP(cfg *config.Config, log *slog.Logger) domain.GeoIPResolver {
 	resolver, err := geoip.NewMaxMindResolver(
 		cfg.GeoIP.MaxmindDBPath,
 		cfg.GeoIP.ASNDBPath,
+		cfg.GeoIP.CacheSize,
 		log,
 	)
 	if err != nil {

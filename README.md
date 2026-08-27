@@ -37,14 +37,16 @@ Connection direction: in every case the DNS server is the **client**. dns-flow (
 
 - **DNSTAP framestream receiver** over TCP (listen) or Unix socket (listen) — dns-flow creates the socket and accepts connections from any DNSTAP source (BIND, PowerDNS, Unbound, DNSDist, etc.) with full DNS wire parsing (26 RR types, EDNS options, DNSDist policy metadata)
 - **Relay mode** (`mode: relay`) — stateless FSTRM frame passthrough (e.g. BIND Unix socket → remote collector), no payload decoding, in-memory queue + auto-reconnect
-- **Kafka mandatory buffer** (kafka-go, sync producer, compression: gzip/lz4/zstd)
+- **Kafka mandatory buffer** (kafka-go, sync producer, compression: gzip/lz4/zstd, fully supports Kafka 4.x KRaft mode)
 - **Query-response correlation** — matches CLIENT_QUERY ↔ CLIENT_RESPONSE by client IP + DNS ID; detects orphaned responses and unanswered queries
+- **GeoIP & ASN Enrichment with LRU Cache** — fast in-memory LRU caching to eliminate MaxMind DB lookup overhead under high QPS
+- **Threat Intelligence & Blocklist Engine** — real-time domain & IP blocklist matching (`threat_intel`), flagging malicious C2/phishing traffic
 - **Real-time DNS Anomaly Detection & Threat Analytics** — 7 built-in detection engines (DNS Tunneling via Shannon Entropy, DGA domains, NXDOMAIN flood, DNS Amplification risk, DNS Rebinding, Suspicious TLDs, High-rate floods)
-- **Multiple outputs** — ClickHouse (native TCP batch + auto Materialized Views), InfluxDB v1/v2 (HTTP line protocol), File (rotating JSON lines)
+- **Multiple outputs** — ClickHouse (native TCP batch + auto Materialized Views + threat/anomaly columns), InfluxDB v1/v2 (HTTP line protocol), File (rotating JSON lines with `sync.Pool` zero-allocation writer)
+- **CLI Config Tester** — `dns-flow -config config.yaml -config-test` for pre-flight YAML validation
 - **Configurable retention** — ClickHouse TTL, InfluxDB retention policy/bucket, Kafka topic retention
-- **Graceful shutdown** — zero data loss on SIGINT/SIGTERM
-- **Live config reload** — SIGHUP re-reads config, logs changes
-- **Single binary** — `dns-flow -config config.yaml`
+- **Graceful shutdown & live reload** — zero data loss on SIGINT/SIGTERM, live config reload on SIGHUP
+- **Single binary** — portable across FreeBSD 15 (fmake/BSD make) and Linux
 
 ## Quick Start
 

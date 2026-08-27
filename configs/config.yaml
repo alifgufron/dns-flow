@@ -100,10 +100,20 @@ pipeline:
 geoip:
   maxmind_db_path: "/data/geoip/GeoLite2-City.mmdb"
   asn_db_path: "/data/geoip/GeoLite2-ASN.mmdb"
+  cache_size: 10000            # LRU cache entries for IP lookups (0 = disabled)
+
+# --- Threat Intelligence ---
+threat_intel:
+  enabled: true                # Enable domain & IP blocklist matching
+  blocklist_paths: []          # Optional paths to hosts/domain blocklist files
+  custom_domains:              # Custom high-risk domains for real-time flagging
+    - "malware.test"
+    - "phishing.test"
 
 # --- Monitoring ---
 monitoring:
   metrics_enabled: true
   prometheus_port: 9153
   metrics_path: "/metrics"
+
 

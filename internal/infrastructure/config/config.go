@@ -9,15 +9,16 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig     `yaml:"server"`
-	Mode       string           `yaml:"mode"`
-	DNSTap     DNSTapConfig     `yaml:"dnstap"`
-	Kafka      KafkaConfig      `yaml:"kafka"`
-	Relay      RelayConfig      `yaml:"relay"`
-	Outputs    OutputsConfig    `yaml:"outputs"`
-	Pipeline   PipelineConfig   `yaml:"pipeline"`
-	GeoIP      GeoIPConfig      `yaml:"geoip"`
-	Monitoring MonitoringConfig `yaml:"monitoring"`
+	Server      ServerConfig      `yaml:"server"`
+	Mode        string            `yaml:"mode"`
+	DNSTap      DNSTapConfig      `yaml:"dnstap"`
+	Kafka       KafkaConfig       `yaml:"kafka"`
+	Relay       RelayConfig       `yaml:"relay"`
+	Outputs     OutputsConfig     `yaml:"outputs"`
+	Pipeline    PipelineConfig    `yaml:"pipeline"`
+	GeoIP       GeoIPConfig       `yaml:"geoip"`
+	ThreatIntel ThreatIntelConfig `yaml:"threat_intel"`
+	Monitoring  MonitoringConfig  `yaml:"monitoring"`
 }
 
 type ServerConfig struct {
@@ -144,6 +145,14 @@ type EnrichmentConfig struct {
 type GeoIPConfig struct {
 	MaxmindDBPath string `yaml:"maxmind_db_path"`
 	ASNDBPath     string `yaml:"asn_db_path"`
+	CacheSize     int    `yaml:"cache_size"`
+}
+
+type ThreatIntelConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	BlocklistPaths []string `yaml:"blocklist_paths"`
+	CustomDomains  []string `yaml:"custom_domains"`
+	CustomIPs      []string `yaml:"custom_ips"`
 }
 
 type MonitoringConfig struct {

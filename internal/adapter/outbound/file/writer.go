@@ -1,6 +1,7 @@
 package file
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,12 @@ import (
 
 	"github.com/alifgufron/dns-flow/internal/domain"
 )
+
+var bufPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
 
 type Config struct {
 	Path       string
@@ -73,8 +80,12 @@ func (w *Writer) Migrate() error {
 }
 
 func (w *Writer) Write(event domain.DNSRawEvent) error {
-	data, err := json.Marshal(event)
-	if err != nil {
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufPool.Put(buf)
+
+	enc := json.NewEncoder(buf)
+	if err := enc.Encode(event); err != nil {
 		return err
 	}
 
@@ -92,8 +103,7 @@ func (w *Writer) Write(event domain.DNSRawEvent) error {
 		}
 	}
 
-	data = append(data, '\n')
-	n, err := w.file.Write(data)
+	n, err := w.file.Write(buf.Bytes())
 	if err != nil {
 		return err
 	}

@@ -121,9 +121,14 @@
   },
   "geoip": {
     "client-ip": "10.0.0.2",
-    "client-country": "",
-    "client-city": "",
-    "client-asn": ""
+    "client-country": "US",
+    "client-city": "Seattle",
+    "client-asn": "AS65000"
+  },
+  "threat": {
+    "malicious": true,
+    "category": "domain_blocklist",
+    "sources": ["domain_blocklist"]
   },
   "anomaly": {
     "detected": true,
