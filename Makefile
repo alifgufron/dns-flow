@@ -25,15 +25,18 @@ help:
 $(BINDIR_OUT):
 	mkdir -p $(BINDIR_OUT)
 
-build: | $(BINDIR_OUT)
+build:
+	@mkdir -p $(BINDIR_OUT)
 	$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINDIR_OUT)/dns-flow ./cmd/dns-flow/
 	@echo "built $(BINDIR_OUT)/dns-flow"
 
-build-linux: | $(BINDIR_OUT)
+build-linux:
+	@mkdir -p $(BINDIR_OUT)
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINDIR_OUT)/dns-flow-linux-amd64 ./cmd/dns-flow/
 	@echo "built $(BINDIR_OUT)/dns-flow-linux-amd64"
 
-build-freebsd: | $(BINDIR_OUT)
+build-freebsd:
+	@mkdir -p $(BINDIR_OUT)
 	GOOS=freebsd GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINDIR_OUT)/dns-flow-freebsd-amd64 ./cmd/dns-flow/
 	@echo "built $(BINDIR_OUT)/dns-flow-freebsd-amd64"
 
