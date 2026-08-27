@@ -77,7 +77,16 @@ install-freebsd: create-user-freebsd
 	install -d -m 750 $(DESTDIR)/var/log/dns-flow
 	install -d $(DESTDIR)/usr/local/etc/rc.d
 	install -m 755 init/rc.d/dns-flow $(DESTDIR)/usr/local/etc/rc.d/dns-flow
-	@echo "FreeBSD install complete. Enable with: sysrc dns_flow_enable=YES"
+	@echo ""
+	@echo "========================================================================"
+	@echo "  FreeBSD install complete!"
+	@echo "========================================================================"
+	@echo "  1. Config file sample : /usr/local/etc/dns-flow.yaml.sample"
+	@echo "  2. Active config file : /usr/local/etc/dns-flow.yaml"
+	@echo "     (Please edit /usr/local/etc/dns-flow.yaml to configure settings)"
+	@echo "  3. Enable service     : sysrc dns_flow_enable=YES"
+	@echo "  4. Start service      : service dns-flow start"
+	@echo "========================================================================"
 
 install-linux: create-user-linux
 	install -d $(DESTDIR)/usr/local/sbin
@@ -92,7 +101,15 @@ install-linux: create-user-linux
 	install -d -m 750 $(DESTDIR)/var/log/dns-flow
 	install -d $(DESTDIR)/etc/systemd/system
 	install -m 644 init/systemd/dns-flow.service $(DESTDIR)/etc/systemd/system/dns-flow.service
-	@echo "Linux install complete. Enable with: systemctl daemon-reload && systemctl enable --now dns-flow"
+	@echo ""
+	@echo "========================================================================"
+	@echo "  Linux install complete!"
+	@echo "========================================================================"
+	@echo "  1. Config file sample : /etc/dns-flow.yaml.sample"
+	@echo "  2. Active config file : /etc/dns-flow.yaml"
+	@echo "     (Please edit /etc/dns-flow.yaml to configure settings)"
+	@echo "  3. Enable & start     : systemctl daemon-reload && systemctl enable --now dns-flow"
+	@echo "========================================================================"
 
 create-user-freebsd:
 	@if [ -z "$(DESTDIR)" ]; then \
