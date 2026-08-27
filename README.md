@@ -13,10 +13,10 @@ DNS Server (BIND/PowerDNS/Unbound/DNSDist/...)
   dns-flow collect ── listens on TCP :6000 or a Unix socket
         │  decode + enrich (GeoIP) + correlate (query ↔ response)
         ▼
-  Kafka  (mandatory buffer, topic: dns.raw)
+  Kafka  (optional buffer, topic: dns.raw — can be bypassed with kafka.enabled: false)
         │
         ▼
-  dns-flow consumer
+  dns-flow storage outputs
         ├── ClickHouse
         ├── InfluxDB v1 / v2
         └── File (JSON Lines)
@@ -29,7 +29,7 @@ DNS Server ──unix socket──▶ dns-flow relay ──TCP FSTRM──▶ dn
                             (no decode, no Kafka, no storage)
 ```
 
-Kafka is a **mandatory buffer** in collect mode — every DNS event passes through Kafka before reaching storage, ensuring zero data loss and replay capability. Relay mode bypasses Kafka entirely; it only forwards frames.
+Kafka is an **optional decoupling buffer** (`kafka.enabled: true` by default) in collect mode. Enabling it ensures zero data loss and replay capability during storage outages. For lightweight deployments or small instances, setting `kafka.enabled: false` activates **Direct Storage Mode**, streaming telemetry directly to ClickHouse, InfluxDB, or File without Kafka.
 
 Connection direction: in every case the DNS server is the **client**. dns-flow (collect, or relay on a unix input) creates the listener/socket and accepts connections — the same role as `fstrm_capture`.
 

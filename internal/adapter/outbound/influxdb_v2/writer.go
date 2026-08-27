@@ -252,6 +252,13 @@ func (w *Writer) toLineProtocol(event domain.DNSRawEvent) string {
 		escapeField(event.GeoIP.ClientIP),
 	)
 
+	answerIPs, answerCountries, answerASNs := extractAnswerGeoSummary(event)
+	answerFields := fmt.Sprintf(",answer_ip=%s,answer_country=%s,answer_asn=%s",
+		escapeField(answerIPs),
+		escapeField(answerCountries),
+		escapeField(answerASNs),
+	)
+
 	threatFields := fmt.Sprintf(",is_malicious=%s,threat_category=%s",
 		boolToInflux(event.Threat.Malicious),
 		escapeField(event.Threat.Category),
@@ -308,7 +315,30 @@ func (w *Writer) toLineProtocol(event domain.DNSRawEvent) string {
 		)
 	}
 
-	return fmt.Sprintf("%s,%s %s%s%s%s %d", w.measurement(), tags, fields, anomalyFields, threatFields, policyFields, ts)
+	return fmt.Sprintf("%s,%s %s%s%s%s%s %d", w.measurement(), tags, fields, answerFields, anomalyFields, threatFields, policyFields, ts)
+}
+
+func extractAnswerGeoSummary(event domain.DNSRawEvent) (string, string, string) {
+	if rrs, ok := event.DNS.Resource["an"]; ok && len(rrs) > 0 {
+		var ips []string
+		var countries []string
+		var asns []string
+		for _, rr := range rrs {
+			if rr.RData != "" {
+				ips = append(ips, rr.RData)
+			}
+			if rr.Geo != nil {
+				if rr.Geo.Country != "" {
+					countries = append(countries, rr.Geo.Country)
+				}
+				if rr.Geo.ASN != "" {
+					asns = append(asns, rr.Geo.ASN)
+				}
+			}
+		}
+		return strings.Join(ips, "|"), strings.Join(countries, "|"), strings.Join(asns, "|")
+	}
+	return "", "", ""
 }
 
 func escapeField(s string) string {

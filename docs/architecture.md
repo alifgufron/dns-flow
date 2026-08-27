@@ -178,12 +178,17 @@ DNSRawEvent
 
 Per-record GeoIP in `resource-records.an[].geoip` for A/AAAA RDATA.
 
-## Kafka Buffer (Mandatory)
+## Kafka Buffer & Direct Storage Mode
 
-All events from DNSTAP must pass through Kafka (`dns.raw` topic) before reaching storage. This ensures:
-- **Zero data loss** — if ClickHouse/InfluxDB goes down, data is safe in Kafka
-- **Replay** — replay from any offset at any time
-- **Scaling** — collector and consumer can scale independently
+Kafka acts as an **optional decoupling buffer** (`kafka.enabled: true` by default) between DNSTAP ingestion and storage outputs.
+
+When **`kafka.enabled: true`**:
+- **Zero data loss** — if ClickHouse/InfluxDB goes down, data remains safely buffered in Kafka
+- **Replay & Decoupling** — replay events from any offset at any time; ingestion and storage workers operate independently
+
+When **`kafka.enabled: false` (Direct Storage Mode)**:
+- **Lightweight footprint** — eliminates Kafka dependency for resource-constrained instances or edge nodes
+- **Direct streaming** — DNSTAP worker pipeline streams enriched events directly to ClickHouse, InfluxDB, and File outputs
 
 ### Retention Policy
 

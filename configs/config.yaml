@@ -101,6 +101,9 @@ pipeline:
     geoip_enabled: true        # Enrich client IP with GeoIP data
 
 # --- GeoIP MaxMind ---
+# MaxMind GeoLite2 databases (GeoLite2-City.mmdb & GeoLite2-ASN.mmdb) must be
+# downloaded manually (via geoipupdate or maxmind.com) and placed in your system directory.
+# Dual GeoIP enrichment automatically resolves BOTH client IP (query_ip) and answer IPs (RDATA A/AAAA).
 geoip:
   maxmind_db_path: "/data/geoip/GeoLite2-City.mmdb"
   asn_db_path: "/data/geoip/GeoLite2-ASN.mmdb"

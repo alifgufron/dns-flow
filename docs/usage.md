@@ -292,6 +292,18 @@ pipeline:
 geoip:
   maxmind_db_path: "/data/geoip/GeoLite2-City.mmdb"
   asn_db_path: "/data/geoip/GeoLite2-ASN.mmdb"
+  cache_size: 10000            # LRU cache entries for IP lookups (0 = disabled)
+
+threat_intel:
+  enabled: true                # Enable real-time domain & IP blocklist matching
+  blocklist_paths:             # Optional local hosts/domain blocklist files
+    - "/etc/dns-flow/blocklists/malware.txt"
+  custom_domains:              # High-risk custom domain list
+    - "malware.test"
+    - "phishing.test"
+  custom_ips:                  # High-risk custom IP & CIDR subnets
+    - "1.2.3.4"
+    - "10.99.0.0/16"
 ```
 
 ### Collect mode — Unix socket (listen)
@@ -465,9 +477,110 @@ pipeline:
 | `outputs.file` | `compress` | `false` | Compress rotated files with gzip |
 | `pipeline` | `worker_count` | `4` | Number of worker goroutines |
 | `pipeline` | `queue_size` | `100000` | Max in-flight events (drops when full) |
-| `pipeline.enrichment` | `geoip_enabled` | `true` | Enable MaxMind GeoIP enrichment |
 | `geoip` | `maxmind_db_path` | — | Path to GeoLite2-City.mmdb |
 | `geoip` | `asn_db_path` | — | Path to GeoLite2-ASN.mmdb |
+| `geoip` | `cache_size` | `10000` | In-memory LRU cache entries for IP lookups |
+| `threat_intel` | `enabled` | `true` | Enable domain/IP blocklist matching |
+| `threat_intel` | `blocklist_paths` | `[]` | List of local hosts/domain blocklist file paths |
+| `threat_intel` | `custom_domains` | `[]` | List of custom high-risk domain names to flag |
+| `threat_intel` | `custom_ips` | `[]` | List of custom IP addresses or CIDR subnets to flag |
+
+## Threat Intelligence & Blocklists
+
+`dns-flow` includes a real-time Threat Intelligence engine (`threat_intel`) that matches queried domain names (`qname`) and client IP addresses against blocklists and custom threat feeds.
+
+### Configuration Keys
+
+The engine uses 3 separate input sources. You can use any combination:
+
+| Key | What it does | Input format | Category label |
+|-----|-------------|--------------|----------------|
+| `blocklist_paths` | Loads **domain names** from external text files on disk (bulk feeds) | One domain per line, or hosts file format (`0.0.0.0 domain` / `127.0.0.1 domain`). See [File Format](#blocklist-file-format) below. | `blocklist_feed` |
+| `custom_domains` | Inline list of **domain names** defined directly in `config.yaml` (quick additions without managing files) | YAML string list | `custom_blocklist` |
+| `custom_ips` | Inline list of **IP addresses** or **CIDR subnets** for flagging suspicious client source IPs | Single IP (`1.2.3.4`) or CIDR notation (`10.99.0.0/16`) | `custom_ip_blocklist` / `custom_cidr` |
+
+**Key differences**:
+- `blocklist_paths` → reads **files** from disk containing **domain names** only (thousands/millions of entries from community feeds like StevenBlack, URLhaus, etc.)
+- `custom_domains` → quick inline **domain names** in YAML (small lists, no external files needed)
+- `custom_ips` → matches **client query source IP** (not domain names), supports both single IPs and CIDR ranges
+
+### Matching Behavior
+1. **Domain & Suffix Matching**: Matches exact domain names (`malware.com`) as well as parent suffix domains (querying `sub.malware.com` also matches if `malware.com` is blocklisted).
+2. **IP & CIDR Subnet Matching**: Matches exact client IPs (`1.2.3.4`) or entire network blocks (`10.99.0.0/16`).
+3. **Priority**: Domain check runs first, then IP check. First match wins and short-circuits.
+
+### Configuration Example
+```yaml
+threat_intel:
+  enabled: true
+  blocklist_paths:
+    - "/etc/dns-flow/blocklists/malware.txt"
+    - "/etc/dns-flow/blocklists/phishing.txt"
+  custom_domains:
+    - "bad-domain.test"
+    - "c2server.com"
+  custom_ips:
+    - "198.51.100.45"
+    - "192.0.2.0/24"
+```
+
+### Blocklist File Format
+
+Blocklist files support 3 formats (one entry per line). Lines starting with `#` are comments and blank lines are ignored.
+
+**Format 1 — Domain-only (one domain per line)**:
+```
+# /etc/dns-flow/blocklists/malware.txt
+malware-c2.example.com
+phishing-login.example.net
+cryptominer-pool.test
+```
+
+**Format 2 — Hosts file format (`0.0.0.0` or `127.0.0.1` prefix)**:
+```
+# Standard hosts file format (compatible with Pi-hole, StevenBlack, etc.)
+0.0.0.0 malware-c2.example.com
+0.0.0.0 phishing-login.example.net
+127.0.0.1 cryptominer-pool.test
+```
+
+**Format 3 — Mixed (domain with optional trailing dot)**:
+```
+malware-c2.example.com.
+phishing-login.example.net.
+```
+
+> **Tip**: You can use popular community blocklists such as [StevenBlack/hosts](https://github.com/StevenBlack/hosts), [URLhaus](https://urlhaus.abuse.ch/), or [PhishTank](https://phishtank.org/). Download the hosts-format file and add its path to `blocklist_paths`.
+
+When a match is found, `dns-flow` automatically populates the `threat` metadata field in storage outputs (ClickHouse `is_malicious=1`, InfluxDB tag `is_malicious=true`, and File JSON `"threat": {"malicious": true, "category": "...", "sources": [...]}`).
+
+## GeoIP Setup & Dual Enrichment
+
+### Manual Database Download
+`dns-flow` uses MaxMind GeoIP databases for geolocation and ASN resolution. MaxMind `.mmdb` files are **not bundled** and must be downloaded manually or updated automatically via the official `geoipupdate` utility.
+
+1. **Download Database Files**:
+   - Register a free account at [MaxMind](https://www.maxmind.com/).
+   - Download `GeoLite2-City.mmdb` (for Country and City) and `GeoLite2-ASN.mmdb` (for Autonomous System Numbers).
+   - Place them in your system directory (e.g. `/data/geoip/` or `/usr/local/share/GeoIP/`).
+
+2. **Configure Paths**:
+   ```yaml
+   geoip:
+     maxmind_db_path: "/data/geoip/GeoLite2-City.mmdb"
+     asn_db_path: "/data/geoip/GeoLite2-ASN.mmdb"
+     cache_size: 10000     # High-speed LRU cache (0 = disabled)
+   ```
+
+### Dual GeoIP Enrichment (Client IP + Answer RDATA)
+`dns-flow` performs **Dual GeoIP Enrichment** on every DNS event:
+- **Client GeoIP (`query_ip`)**: Resolves the client query IP (e.g. `Client IP 203.0.113.5 -> Country: ID, City: Bandung, ASN: AS65000`).
+- **Answer/Resolved RDATA GeoIP (`rdata`)**: Resolves all resolved `A` and `AAAA` IP records returned in DNS answers (e.g. `google.com -> A 8.8.8.8 -> Country: US, ASN: AS15169`).
+
+#### Output Storage Coverage for Dual GeoIP:
+- **ClickHouse**: Saved in `dns_raw` (`client_country`, `client_city`, `client_asn`) and `dns_answers` (`answer_country`, `answer_city`, `answer_asn`).
+- **File Output (JSON)**: Saved in root `"geoip": {...}` and inside `"resource-records": {"an": [{"rdata": "8.8.8.8", "geoip": {"country": "US", "asn": "AS15169"}}]}`.
+- **InfluxDB v1/v2**: Saved as tags (`client_country`, `client_city`, `client_asn`) and fields (`answer_ip`, `answer_country`, `answer_asn`).
 
 ## Running
 
