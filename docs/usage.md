@@ -623,6 +623,52 @@ Shutdown sequence:
 | `geoip unavailable` | MMDB file not found | Download GeoLite2 or set `geoip_enabled: false` |
 | `pipeline queue full, dropping event` | Throughput exceeds capacity | Increase `worker_count` or `queue_size` |
 | `orphaned response` | RESPONSE without matching QUERY | Normal on cold start; investigate if persistent |
-| `unanswered query evicted` | QUERY >30s without RESPONSE | Possible packet loss or slow resolver |
+| `unanswered query evicted` | QUERY >30s without RESPONSE | Normal on cold start or network timeouts; investigate if persistent |
 | Kafka broker not available | Kafka cluster down | Check Kafka connection; topic auto-created at startup |
 | `-1 Unknown` error with snappy | Kafka 3.9.2 does not support snappy | Change compression to `zstd`, `lz4`, `gzip`, or `none` |
+
+## Log Rotation Configuration
+
+Since `dns-flow` prints operations to `/var/log/dns-flow/dns-flow.log`, it is important to configure a log rotator (such as FreeBSD `newsyslog` or Linux `logrotate`) to prevent disk exhaustion.
+
+### 1. FreeBSD (`newsyslog`)
+Create `/usr/local/etc/newsyslog.conf.d/dns-flow.conf`:
+```text
+# logfilename                     [owner:group]    mode count size when flags [/pid_file] [sig_num]
+/var/log/dns-flow/dns-flow.log    dnsflow:dnsflow  644  7     100  *    JC    /var/run/dns-flow/dns-flow.pid 30
+```
+* **`JC`**: Compresses rotated logs using `bzip2` (`J`) and auto-creates the log file if deleted (`C`).
+* **`100`**: Rotates the log when it reaches 100 MB.
+* **`30`**: Sends `SIGUSR1` to notify the running daemon to reopen its log descriptor.
+
+### 2. Linux (`logrotate`)
+Create `/etc/logrotate.d/dns-flow`:
+```text
+/var/log/dns-flow/dns-flow.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    sharedscripts
+    postrotate
+        systemctl kill -s HUP dns-flow
+    endscript
+}
+```
+
+---
+
+## Log Message Reference
+
+`dns-flow` produces structured JSON logs. Here are the key messages you might encounter:
+
+| Level | Message (`msg`) | Meaning | Troubleshooting |
+|---|---|---|---|
+| **INFO** | `dnstap server listening` | The collector successfully bound to its socket/port and is waiting for DNS client connections. | Normal startup behavior. |
+| **INFO** | `dnstap client connected` | A DNS server (e.g. BIND) has successfully established a TCP or Unix socket connection to the collector. | Normal operational flow. |
+| **INFO** | `direct storage mode active` | `dns-flow` is sending events straight to storage (bypassing Kafka). | Confirms `kafka.enabled` is set to `false`. |
+| **WARN** | `unanswered query evicted` | A DNS query sat in memory for 30s without its matching response frame, and was evicted to prevent memory leaks. | Normal on busy networks (timeouts, packets blocked by firewall, client cancellations). If rate is extremely high, investigate network packet loss or DNS server load. |
+| **WARN** | `orphaned response` | A DNS response packet was received, but no matching query was found in the correlation cache. | Normal during startup (cache is cold) or when responses arrive late (>30s). Can also happen if queries and responses are sent to different collector ports. |
+| **WARN** | `relay input connect failed` | The relay daemon failed to connect to its target Unix socket or TCP input socket. | Ensure the source service (e.g. BIND) is running and path permissions are correct. |
+| **ERROR**| `pipeline queue full, dropping event` | Ingestion rate exceeds storage capacity; the in-memory queue filled up and new DNS events were dropped. | Increase the storage output write capacity, decrease network QPS, or scale up `pipeline.worker_count` & `pipeline.queue_size`. |
