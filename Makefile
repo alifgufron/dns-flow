@@ -124,12 +124,26 @@ create-user-linux:
 	fi
 
 uninstall:
+	@UNAME=$$(uname -s); \
+	if [ "$$UNAME" = "FreeBSD" ]; then \
+		$(MAKE) uninstall-freebsd; \
+	else \
+		$(MAKE) uninstall-linux; \
+	fi
+
+uninstall-freebsd:
 	rm -f $(DESTDIR)/usr/local/sbin/dns-flow
 	rm -f $(DESTDIR)/usr/local/etc/dns-flow.yaml.sample
-	rm -f $(DESTDIR)/etc/dns-flow.yaml.sample
 	rm -f $(DESTDIR)/usr/local/etc/rc.d/dns-flow
+	@echo "Removed binary, sample config, and rc.d service script."
+	@echo "Preserved active config (/usr/local/etc/dns-flow.yaml) and data directory."
+
+uninstall-linux:
+	rm -f $(DESTDIR)/usr/local/sbin/dns-flow
+	rm -f $(DESTDIR)/etc/dns-flow.yaml.sample
 	rm -f $(DESTDIR)/etc/systemd/system/dns-flow.service
-	@echo "removed binary and service unit"
+	@echo "Removed binary, sample config, and systemd service unit."
+	@echo "Preserved active config (/etc/dns-flow.yaml) and data directory."
 
 clean:
 	rm -rf $(BINDIR_OUT)
