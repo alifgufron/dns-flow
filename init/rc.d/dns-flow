@@ -41,7 +41,14 @@ else
 	_output_args="-S -T ${name}"
 fi
 
-command_args="-f -u ${dns_flow_user} -p ${pidfile} ${_output_args} ${procname} -config ${dns_flow_config}"
+# Only pass -u when not running as root; daemon already runs as root by default.
+if [ "${dns_flow_user}" = "root" ]; then
+	_user_arg=""
+else
+	_user_arg="-u ${dns_flow_user}"
+fi
+
+command_args="-f ${_user_arg} -p ${pidfile} ${_output_args} ${procname} -config ${dns_flow_config}"
 
 required_files="${dns_flow_config}"
 start_precmd="${name}_prestart"
