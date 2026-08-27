@@ -28,6 +28,7 @@ monitoring:
   metrics_enabled: true
   prometheus_port: 9153
   metrics_path: "/metrics"
+  auth_token: "YOUR_SECRET_BEARER_TOKEN"  # Optional Bearer token protection
 ```
 
 Add the following job to your `prometheus.yml`:
@@ -35,6 +36,7 @@ Add the following job to your `prometheus.yml`:
 ```yaml
 scrape_configs:
   - job_name: 'dns_flow'
+    bearer_token: 'YOUR_SECRET_BEARER_TOKEN'  # Required if auth_token is configured
     static_configs:
       - targets: ['localhost:9153']
 ```

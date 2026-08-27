@@ -19,6 +19,7 @@ type MetricsExporter struct {
 	logger           *slog.Logger
 	port             int
 	path             string
+	authToken        string
 	queriesTotal     *prometheus.CounterVec
 	responsesTotal   *prometheus.CounterVec
 	anomaliesTotal   *prometheus.CounterVec
@@ -32,7 +33,7 @@ var (
 	exporterMu     sync.Mutex
 )
 
-func InitMetrics(port int, path string, logger *slog.Logger) *MetricsExporter {
+func InitMetrics(port int, path string, authToken string, logger *slog.Logger) *MetricsExporter {
 	exporterMu.Lock()
 	defer exporterMu.Unlock()
 
@@ -48,9 +49,10 @@ func InitMetrics(port int, path string, logger *slog.Logger) *MetricsExporter {
 	}
 
 	m := &MetricsExporter{
-		logger: logger,
-		port:   port,
-		path:   path,
+		logger:    logger,
+		port:      port,
+		path:      path,
+		authToken: authToken,
 		queriesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "dnsflow_queries_total",
@@ -109,7 +111,21 @@ func (m *MetricsExporter) Start() {
 		return
 	}
 	mux := http.NewServeMux()
-	mux.Handle(m.path, promhttp.Handler())
+
+	var handler http.Handler = promhttp.Handler()
+	if m.authToken != "" {
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			expected := "Bearer " + m.authToken
+			if authHeader != expected {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			promhttp.Handler().ServeHTTP(w, r)
+		})
+	}
+
+	mux.Handle(m.path, handler)
 
 	m.server = &http.Server{
 		Addr:    ":" + strconv.Itoa(m.port),
@@ -117,7 +133,7 @@ func (m *MetricsExporter) Start() {
 	}
 
 	go func() {
-		m.logger.Info("prometheus metrics exporter listening", "port", m.port, "path", m.path)
+		m.logger.Info("prometheus metrics exporter listening", "port", m.port, "path", m.path, "auth_enabled", m.authToken != "")
 		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			m.logger.Error("prometheus metrics server failed", "error", err)
 		}

@@ -119,5 +119,6 @@ monitoring:
   metrics_enabled: true
   prometheus_port: 9153
   metrics_path: "/metrics"
+  # auth_token: "secret-token"   # Optional Bearer token for /metrics endpoint security
 
 

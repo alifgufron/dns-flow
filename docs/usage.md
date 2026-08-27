@@ -94,6 +94,71 @@ sudo service dns-flow reload          # SIGHUP config reload
 `make uninstall` removes the binary and service unit but keeps the config, data
 directory, and service user.
 
+### Troubleshooting
+
+Common issues and solutions:
+
+- **Kafka Connection Refused**: Ensure Kafka is running on `localhost:9092` or update `kafka.brokers`. If Kafka is not needed, set `kafka.enabled: false` for Direct Storage Mode.
+- **MaxMind DB Not Found**: Verify `geoip.maxmind_db_path` points to a valid `.mmdb` file.
+- **DNSTAP Handshake Error**: Ensure your DNS server connects using `dnstap` framestream format over TCP or Unix socket.
+
+## Endpoint Security & Firewall Protection
+
+By default, the Prometheus metrics exporter listens on port `9153`. It is strongly recommended to secure this endpoint using **Bearer Token Authentication** and **Firewall Rules**.
+
+### 1. Bearer Token Authentication
+In `config.yaml`:
+```yaml
+monitoring:
+  metrics_enabled: true
+  prometheus_port: 9153
+  metrics_path: "/metrics"
+  auth_token: "YOUR_SECRET_PROMETHEUS_BEARER_TOKEN"
+```
+
+Configure your `prometheus.yml` to supply the token:
+```yaml
+scrape_configs:
+  - job_name: 'dns_flow'
+    bearer_token: 'YOUR_SECRET_PROMETHEUS_BEARER_TOKEN'
+    static_configs:
+      - targets: ['10.0.0.1:9153']
+```
+
+### 2. Firewall Access Rules (Restricting Port 9153)
+
+Restricting access to port `9153` to only your Prometheus scraper IP (e.g. `10.0.0.100`):
+
+#### **Linux (nftables)**
+In `/etc/nftables.conf`:
+```nftables
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+        # Allow Prometheus scraping only from 10.0.0.100
+        ip saddr 10.0.0.100 tcp dport 9153 accept
+        tcp dport 9153 drop
+    }
+}
+```
+
+#### **Linux (iptables)**
+```bash
+# Allow authorized Prometheus scraper
+iptables -A INPUT -p tcp -s 10.0.0.100 --dport 9153 -j ACCEPT
+# Block all other incoming traffic on port 9153
+iptables -A INPUT -p tcp --dport 9153 -j DROP
+```
+
+#### **FreeBSD (pf.conf)**
+In `/etc/pf.conf`:
+```pf
+prometheus_scraper = "10.0.0.100"
+pass in quick proto tcp from $prometheus_scraper to any port 9153
+block in quick proto tcp from any to any port 9153
+```
+Reload rule: `pfctl -f /etc/pf.conf`
+
 ### Unix socket permissions
 
 When `dnstap.type: unix` (or `relay.input.type: unix`), dns-flow creates the

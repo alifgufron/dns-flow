@@ -229,7 +229,7 @@ func runCollect(cfg *config.Config, cfgPath string, log *slog.Logger) {
 	// --- Prometheus Metrics ---
 	var metricsExporter *metrics.MetricsExporter
 	if cfg.Monitoring.MetricsEnabled {
-		metricsExporter = metrics.InitMetrics(cfg.Monitoring.PrometheusPort, cfg.Monitoring.MetricsPath, log)
+		metricsExporter = metrics.InitMetrics(cfg.Monitoring.PrometheusPort, cfg.Monitoring.MetricsPath, cfg.Monitoring.AuthToken, log)
 		metricsExporter.Start()
 	}
 
