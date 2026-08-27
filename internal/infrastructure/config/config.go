@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -206,12 +208,24 @@ func (c *Config) validateRelay() error {
 	if c.Relay.Input.Type != "tcp" && c.Relay.Input.Type != "unix" {
 		return fmt.Errorf("config: relay.input.type must be tcp or unix")
 	}
+	if c.Relay.Input.Type == "unix" {
+		if err := validateUnixSocketPath(c.Relay.Input.Address, "relay.input.address"); err != nil {
+			return err
+		}
+	}
+
 	if c.Relay.Output.Type == "" || c.Relay.Output.Address == "" {
 		return fmt.Errorf("config: relay.output.type and relay.output.address are required")
 	}
 	if c.Relay.Output.Type != "tcp" && c.Relay.Output.Type != "unix" {
 		return fmt.Errorf("config: relay.output.type must be tcp or unix")
 	}
+	if c.Relay.Output.Type == "unix" {
+		if err := validateUnixSocketPath(c.Relay.Output.Address, "relay.output.address"); err != nil {
+			return err
+		}
+	}
+
 	if c.Relay.ReconnectInterval <= 0 {
 		c.Relay.ReconnectInterval = 5 * time.Second
 	}
@@ -226,6 +240,9 @@ func (c *Config) validateCollect() error {
 	case "unix":
 		if c.DNSTap.UnixSocket == "" {
 			return fmt.Errorf("config: dnstap.unix_socket is required when dnstap.type is unix")
+		}
+		if err := validateUnixSocketPath(c.DNSTap.UnixSocket, "dnstap.unix_socket"); err != nil {
+			return err
 		}
 	case "", "tcp":
 		if c.DNSTap.Listen == "" {
@@ -244,6 +261,17 @@ func (c *Config) validateCollect() error {
 	}
 	if c.Outputs.ClickHouse == nil && c.Outputs.InfluxDB == nil && c.Outputs.InfluxDBV2 == nil && c.Outputs.File == nil {
 		return fmt.Errorf("config: at least one output (clickhouse/influxdb/influxdb_v2/file) required")
+	}
+	return nil
+}
+
+func validateUnixSocketPath(path string, fieldName string) error {
+	if strings.Contains(path, "/path/to/") || strings.HasPrefix(path, "/path/to/") {
+		return fmt.Errorf("%s contains sample placeholder path '%s' — please configure a valid path", fieldName, path)
+	}
+	dir := filepath.Dir(path)
+	if stat, err := os.Stat(dir); os.IsNotExist(err) || (err == nil && !stat.IsDir()) {
+		return fmt.Errorf("%s parent directory '%s' does not exist", fieldName, dir)
 	}
 	return nil
 }
