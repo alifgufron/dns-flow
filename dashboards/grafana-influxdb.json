@@ -1,4 +1,29 @@
 {
+  "__inputs": [
+    {
+      "name": "DS_INFLUXDB",
+      "label": "InfluxDB",
+      "description": "InfluxDB data source for DNS-Flow",
+      "type": "datasource",
+      "pluginId": "influxdb",
+      "pluginName": "InfluxDB"
+    }
+  ],
+  "__elements": {},
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "7.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "influxdb",
+      "name": "InfluxDB",
+      "version": "1.0.0"
+    }
+  ],
   "annotations": {
     "list": []
   },
@@ -11,51 +36,101 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "id": 1,
-      "title": "DNS Queries Rate (QPS)",
+      "title": "Total DNS Queries",
       "type": "stat",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "targets": [
         {
+          "alias": "Queries",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "SELECT count(\"qname\") FROM \"dns_query\" WHERE $timeFilter GROUP BY time($__interval)",
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE $timeFilter",
+          "rawQuery": true,
           "refId": "A"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      }
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "id": 2,
-      "title": "Average Response Latency (ms)",
+      "title": "Avg Query Latency (ms)",
       "type": "stat",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "targets": [
         {
+          "alias": "Latency",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "SELECT mean(\"latency_ms\") FROM \"dns_query\" WHERE $timeFilter GROUP BY time($__interval)",
+          "query": "SELECT mean(\"latency_ms\") FROM \"dns_query\" WHERE \"qr\" = true AND $timeFilter",
+          "rawQuery": true,
           "refId": "A"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "unit": "ms"
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "id": 3,
-      "title": "Total Anomaly Spikes",
+      "title": "Total NXDOMAIN",
       "type": "stat",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "targets": [
         {
+          "alias": "NXDOMAIN",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "SELECT count(\"is_anomaly\") FROM \"dns_query\" WHERE \"is_anomaly\" = 't' AND $timeFilter",
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"rcode\" = 'NXDOMAIN' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "id": 4,
+      "title": "Detected Anomalies",
+      "type": "stat",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "targets": [
+        {
+          "alias": "Anomalies",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"anomaly_type\" != '' AND $timeFilter",
+          "rawQuery": true,
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -68,21 +143,24 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
-      "id": 6,
-      "title": "Threat Intelligence Flagged",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "id": 8,
+      "title": "Threat Intelligence Flags",
       "type": "stat",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "targets": [
         {
+          "alias": "Threats",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "SELECT count(\"is_malicious\") FROM \"dns_query\" WHERE \"is_malicious\" = 't' AND $timeFilter",
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"threat_category\" != '' AND $timeFilter",
+          "rawQuery": true,
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -94,29 +172,250 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
-      "id": 4,
-      "title": "DNS Traffic Volume over Time",
-      "type": "timeseries",
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "id": 11,
+      "title": "Active Client IPs",
+      "type": "stat",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "targets": [
         {
+          "alias": "Clients",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "SELECT count(\"qname\") FROM \"dns_query\" WHERE $timeFilter GROUP BY time($__interval), \"operation\" fill(null)",
+          "query": "SELECT count(distinct(\"client_ip\")) FROM \"dns_query\" WHERE \"client_ip\" != '0.0.0.0' AND \"client_ip\" != '127.0.0.1' AND \"client_ip\" != '::' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 12,
+      "title": "DNS Traffic Volume & Operations over Time",
+      "type": "timeseries",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineInterpolation": "smooth"
+          }
+        }
+      },
+      "targets": [
+        {
+          "alias": "$tag_operation",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE $timeFilter GROUP BY time($__interval), \"operation\" fill(0)",
+          "rawQuery": true,
           "refId": "A"
         }
       ]
     },
     {
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "id": 5,
-      "title": "Detected Anomalies by Type",
+      "id": 13,
+      "title": "Detected Anomalies by Type over Time",
       "type": "timeseries",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineInterpolation": "smooth"
+          }
+        }
+      },
+      "targets": [
+        {
+          "alias": "$tag_anomaly_type",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"anomaly_type\" != '' AND $timeFilter GROUP BY time($__interval), \"anomaly_type\" fill(0)",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 5,
+      "title": "Top 10 Querying Cities (GeoIP)",
+      "type": "bargauge",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "alias": "$tag_client_city",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"client_city\" != 'unknown' AND \"client_city\" != '' AND $timeFilter GROUP BY \"client_city\"",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 9,
+      "title": "Top 10 Querying Client ASNs (GeoIP)",
+      "type": "bargauge",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "alias": "$tag_client_asn",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"client_asn\" != 'unknown' AND \"client_asn\" != 'AS0' AND \"client_asn\" != '' AND $timeFilter GROUP BY \"client_asn\"",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "id": 6,
+      "title": "DNS Record Types Breakdown (QType)",
+      "type": "piechart",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "alias": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'A' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "alias": "AAAA",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'AAAA' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "B"
+        },
+        {
+          "alias": "HTTPS",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'HTTPS' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "C"
+        },
+        {
+          "alias": "TXT",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'TXT' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "D"
+        },
+        {
+          "alias": "CNAME",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'CNAME' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "E"
+        },
+        {
+          "alias": "DS",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'DS' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "F"
+        },
+        {
+          "alias": "DNSKEY",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'DNSKEY' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "G"
+        },
+        {
+          "alias": "PTR",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'PTR' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "H"
+        },
+        {
+          "alias": "MX",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" = 'MX' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "I"
+        },
+        {
+          "alias": "Other",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"qtype\" != 'A' AND \"qtype\" != 'AAAA' AND \"qtype\" != 'HTTPS' AND \"qtype\" != 'TXT' AND \"qtype\" != 'CNAME' AND \"qtype\" != 'DS' AND \"qtype\" != 'DNSKEY' AND \"qtype\" != 'PTR' AND \"qtype\" != 'MX' AND $timeFilter",
+          "rawQuery": true,
+          "refId": "J"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "id": 14,
+      "title": "Client GeoIP Country Distribution",
+      "type": "piechart",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "alias": "$tag_client_country",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT count(\"dns_id\") FROM \"dns_query\" WHERE \"client_country\" != 'unknown' AND \"client_country\" != '' AND $timeFilter GROUP BY \"client_country\"",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "id": 10,
+      "title": "Recent DNS Anomalies & Threat Events Log",
+      "type": "table",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "SELECT count(\"is_anomaly\") FROM \"dns_query\" WHERE \"is_anomaly\" = 't' AND $timeFilter GROUP BY time($__interval), \"anomaly_type\" fill(null)",
+          "query": "SELECT \"client_ip\", \"client_country\", \"client_city\", \"qname\", \"qtype\", \"anomaly_type\", \"threat_category\", \"anomaly_score\", \"latency_ms\" FROM \"dns_query\" WHERE \"anomaly_type\" != '' AND \"client_ip\" != '0.0.0.0' AND \"client_ip\" != '127.0.0.1' AND \"client_ip\" != '::' AND $timeFilter ORDER BY time DESC LIMIT 50",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "id": 15,
+      "title": "Live DNS Query Stream & Resolved Answers",
+      "type": "table",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "SELECT \"client_ip\", \"client_city\", \"client_asn\", \"qname\", \"qtype\", \"rcode\", \"answer_asn\", \"answer_country\", \"latency_ms\" FROM \"dns_query\" WHERE \"client_ip\" != '0.0.0.0' AND \"client_ip\" != '127.0.0.1' AND \"client_ip\" != '::' AND $timeFilter ORDER BY time DESC LIMIT 50",
+          "rawQuery": true,
           "refId": "A"
         }
       ]
@@ -126,6 +425,24 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": ["dns-flow", "influxdb", "dns", "security"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "DS_INFLUXDB",
+        "options": [],
+        "query": "influxdb",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
   "time": { "from": "now-6h", "to": "now" },
   "title": "DNS-Flow — InfluxDB Monitoring & Threat Spikes",
   "uid": "dns-flow-influxdb"
